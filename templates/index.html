@@ -1,0 +1,182 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>DocuMind - Code Documentation Tool</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>🧠 DocuMind</h1>
+            <p class="subtitle">Python Code Documentation & Structure Analyzer</p>
+        </header>
+
+        <div class="main-content">
+            <div class="input-section">
+                <div class="tabs">
+                    <button class="tab-btn active" onclick="switchTab('paste')">Paste Code</button>
+                    <button class="tab-btn" onclick="switchTab('upload')">Upload File</button>
+                </div>
+
+                <div id="paste-tab" class="tab-content active">
+                    <textarea id="code-input" placeholder="Paste your Python code here..."></textarea>
+                </div>
+
+                <div id="upload-tab" class="tab-content">
+                    <div class="upload-area" id="upload-area">
+                        <input type="file" id="file-input" accept=".py" style="display: none;">
+                        <div class="upload-placeholder">
+                            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="17 8 12 3 7 8"></polyline>
+                                <line x1="12" y1="3" x2="12" y2="15"></line>
+                            </svg>
+                            <p>Click to upload or drag and drop</p>
+                            <p class="upload-hint">Python files (.py) only</p>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="api-key-section">
+                    <label for="api-key-input">OpenAI API Key (Optional - for enhanced LLM documentation):</label>
+                    <input type="password" id="api-key-input" placeholder="sk-..." class="api-key-input">
+                    <small>Leave empty to use template-based documentation</small>
+                </div>
+
+                <div class="action-buttons">
+                    <button class="parse-btn" onclick="parseCode()">
+                        <span>Analyze Code</span>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <polyline points="5 12 3 12 12 3 21 12 19 12"></polyline>
+                            <polyline points="19 12 19 22 5 22 5 12"></polyline>
+                        </svg>
+                    </button>
+                    <button class="doc-btn" onclick="generateDocumentation()" id="doc-btn" style="display: none;">
+                        <span>Generate Documentation</span>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                            <polyline points="14 2 14 8 20 8"></polyline>
+                            <line x1="16" y1="13" x2="8" y2="13"></line>
+                            <line x1="16" y1="17" x2="8" y2="17"></line>
+                            <polyline points="10 9 9 9 8 9"></polyline>
+                        </svg>
+                    </button>
+                </div>
+            </div>
+
+            <div class="output-section" id="output-section" style="display: none;">
+                <div class="output-header">
+                    <h2>Analysis Results</h2>
+                    <div class="output-actions">
+                        <button class="action-btn" onclick="toggleView()">
+                            <span id="view-toggle">View JSON</span>
+                        </button>
+                        <button class="action-btn" onclick="copyToClipboard()">
+                            <span>Copy JSON</span>
+                        </button>
+                    </div>
+                </div>
+
+                <div id="summary-view" class="summary-view">
+                    <!-- Summary will be inserted here -->
+                </div>
+
+                <div id="json-view" class="json-view" style="display: none;">
+                    <pre id="json-output"></pre>
+                </div>
+            </div>
+
+            <div class="diagrams-section" id="diagrams-section" style="display: none;">
+                <div class="diagrams-header">
+                    <h2>Code Diagrams</h2>
+                    <p class="diagrams-subtitle">Visual representation of code structure and relationships</p>
+                </div>
+
+                <div class="diagram-tabs">
+                    <button class="diagram-tab-btn active" onclick="switchDiagramTab('architecture')">Architecture</button>
+                    <button class="diagram-tab-btn" onclick="switchDiagramTab('sequence')">Sequence</button>
+                    <button class="diagram-tab-btn" onclick="switchDiagramTab('dependencies')">Dependencies</button>
+                    <button class="diagram-tab-btn" onclick="switchDiagramTab('flowchart')">Flowchart</button>
+                </div>
+
+                <div id="architecture-diagram" class="diagram-content active">
+                    <div class="diagram-container">
+                        <div class="mermaid" id="architecture-mermaid"></div>
+                    </div>
+                </div>
+
+                <div id="sequence-diagram" class="diagram-content">
+                    <div class="diagram-container">
+                        <div class="mermaid" id="sequence-mermaid"></div>
+                    </div>
+                </div>
+
+                <div id="dependencies-diagram" class="diagram-content">
+                    <div class="diagram-container">
+                        <div class="mermaid" id="dependencies-mermaid"></div>
+                    </div>
+                </div>
+
+                <div id="flowchart-diagram" class="diagram-content">
+                    <div class="diagram-container">
+                        <div class="mermaid" id="flowchart-mermaid"></div>
+                    </div>
+                    <div class="svg-download-section">
+                        <button class="action-btn svg-download-btn" onclick="downloadSVGFlowchart()">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin-right: 8px;">
+                                <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                <polyline points="7 10 12 15 17 10"></polyline>
+                                <line x1="12" y1="15" x2="12" y2="3"></line>
+                            </svg>
+                            <span>Download SVG Flowchart</span>
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="documentation-section" id="documentation-section" style="display: none;">
+                <div class="doc-header">
+                    <h2>Generated Documentation</h2>
+                    <div class="doc-tabs">
+                        <button class="doc-tab-btn active" onclick="switchDocTab('docstrings')">Docstrings</button>
+                        <button class="doc-tab-btn" onclick="switchDocTab('readme')">README.md</button>
+                        <button class="doc-tab-btn" onclick="switchDocTab('architecture')">ARCHITECTURE.md</button>
+                    </div>
+                </div>
+
+                <div id="docstrings-view" class="doc-content active">
+                    <div class="doc-actions">
+                        <button class="action-btn" onclick="downloadDoc('docstrings')">Download Code with Docstrings</button>
+                        <button class="action-btn" onclick="copyDoc('docstrings')">Copy to Clipboard</button>
+                    </div>
+                    <pre id="docstrings-content" class="doc-code"></pre>
+                </div>
+
+                <div id="readme-view" class="doc-content">
+                    <div class="doc-actions">
+                        <button class="action-btn" onclick="downloadDoc('readme')">Download README.md</button>
+                        <button class="action-btn" onclick="copyDoc('readme')">Copy to Clipboard</button>
+                    </div>
+                    <div id="readme-content" class="doc-markdown"></div>
+                </div>
+
+                <div id="architecture-view" class="doc-content">
+                    <div class="doc-actions">
+                        <button class="action-btn" onclick="downloadDoc('architecture')">Download ARCHITECTURE.md</button>
+                        <button class="action-btn" onclick="copyDoc('architecture')">Copy to Clipboard</button>
+                    </div>
+                    <div id="architecture-content" class="doc-markdown"></div>
+                </div>
+            </div>
+
+            <div id="error-message" class="error-message" style="display: none;"></div>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='script.js') }}"></script>
+</body>
+</html>
+
