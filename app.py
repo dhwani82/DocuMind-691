@@ -38,7 +38,8 @@ def parse_code():
             'architecture': diagram_gen.generate_architecture_diagram(),
             'sequence': diagram_gen.generate_sequence_diagram(),
             'dependencies': diagram_gen.generate_dependency_diagram(),
-            'flowchart': diagram_gen.generate_flowchart()
+            'flowchart': diagram_gen.generate_flowchart(),
+            'structure': diagram_gen.generate_structure_diagram()
         }
         result['diagrams'] = diagrams
         
@@ -63,7 +64,17 @@ def generate_documentation():
             return jsonify({'error': 'No data provided'}), 400
             
         code = data.get('code', '')
-        api_key = data.get('api_key', None)  # Optional API key
+        provider = data.get('provider', 'openai')  # 'openai', 'ollama', or 'template'
+        
+        # If template mode, don't use LLM
+        if provider == 'template':
+            provider = 'openai'  # Use openai provider but without API key
+            api_key = None
+        else:
+            api_key = data.get('api_key', None)  # Optional API key
+        
+        ollama_model = data.get('ollama_model', 'llama2')  # Ollama model name
+        ollama_base_url = data.get('ollama_base_url', 'http://localhost:11434')  # Ollama base URL
         
         if not code:
             return jsonify({'error': 'No code provided'}), 400
@@ -73,13 +84,19 @@ def generate_documentation():
         parse_result = parser.parse(code)
         
         # Generate documentation
-        doc_generator = DocumentationGenerator(api_key=api_key)
+        doc_generator = DocumentationGenerator(
+            api_key=api_key,
+            provider=provider,
+            ollama_model=ollama_model,
+            ollama_base_url=ollama_base_url
+        )
         documentation = doc_generator.generate_documentation(code, parse_result)
         
         return jsonify({
             'success': True,
             'documentation': documentation,
-            'used_llm': doc_generator.use_llm
+            'used_llm': doc_generator.use_llm,
+            'provider': provider
         })
     except SyntaxError as e:
         return jsonify({'error': f'Syntax error: {str(e)}'}), 400
@@ -130,5 +147,5 @@ def generate_svg_flowchart():
         return jsonify({'error': f'Error generating SVG flowchart: {str(e)}'}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(debug=True, host='127.0.0.1', port=5001)
 

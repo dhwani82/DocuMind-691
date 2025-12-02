@@ -28,3 +28,7 @@ Thumbs.db
 get-pip.py
 *.log
 
+# Environment variables
+.env
+.env.local
+

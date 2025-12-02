@@ -676,6 +676,155 @@ class DiagramGenerator:
         lines.append("```")
         return "\n".join(lines)
     
+    def generate_structure_diagram(self) -> str:
+        """Generate Mermaid structure diagram showing hierarchical code organization.
+        
+        Shows the overall structure: classes with methods, top-level functions,
+        nested functions, and their relationships.
+        
+        Returns:
+            Mermaid diagram code as string
+        """
+        if not self.classes and not self.functions:
+            return "```mermaid\ngraph TD\n    A[\"📦 No Code Structure Found\"] --> B[\"Add classes or functions to your code\"]\n    style A fill:#e8f4f8\n    style B fill:#fff4e6\n```"
+        
+        lines = ["```mermaid", "graph TD"]
+        lines.append("    direction TB")
+        
+        # Root node
+        root_id = "ROOT"
+        lines.append(f"    {root_id}[\"📄 Code Structure\"]")
+        lines.append(f"    style {root_id} fill:#e8f5e9,stroke:#4caf50,stroke-width:3px")
+        
+        # Separate top-level functions and nested functions
+        top_level_funcs = [f for f in self.functions if not f.get('is_nested', False)]
+        nested_funcs = [f for f in self.functions if f.get('is_nested', False)]
+        
+        # Group functions by their parent (if nested)
+        nested_by_parent = {}
+        for func in nested_funcs:
+            # Try to find parent - this is simplified, actual parent tracking would need parser enhancement
+            parent = "Nested"
+            nested_by_parent.setdefault(parent, []).append(func)
+        
+        # Add classes section
+        if self.classes:
+            classes_id = "CLASSES"
+            lines.append(f"    {root_id} --> {classes_id}[\"🏛️ Classes ({len(self.classes)})\"]")
+            lines.append(f"    style {classes_id} fill:#fff4e6,stroke:#ff9800,stroke-width:2px")
+            
+            for cls in self.classes:
+                class_id = f"CLASS_{cls['name']}".replace(' ', '_')
+                class_label = f"📦 {cls['name']}"
+                
+                # Add inheritance info
+                if cls.get('bases'):
+                    bases_str = ', '.join(cls['bases'][:2])
+                    if len(cls['bases']) > 2:
+                        bases_str += f" +{len(cls['bases']) - 2}"
+                    class_label += f"\\n(extends {bases_str})"
+                
+                lines.append(f"    {classes_id} --> {class_id}[\"{class_label}\"]")
+                lines.append(f"    style {class_id} fill:#e3f2fd,stroke:#2196F3")
+                
+                # Add methods
+                methods = cls.get('methods', [])
+                if methods:
+                    methods_id = f"{class_id}_METHODS"
+                    lines.append(f"    {class_id} --> {methods_id}[\"🔧 Methods ({len(methods)})\"]")
+                    lines.append(f"    style {methods_id} fill:#f3e5f5,stroke:#9c27b0")
+                    
+                    # Show first 5 methods
+                    for method in methods[:5]:
+                        method_id = f"{class_id}_M_{method['name']}".replace(' ', '_')
+                        method_label = method['name']
+                        if method.get('is_async'):
+                            method_label = f"🔁 {method_label}"
+                        method_label += "()"
+                        lines.append(f"    {methods_id} --> {method_id}[\"{method_label}\"]")
+                        lines.append(f"    style {method_id} fill:#fce4ec,stroke:#e91e63")
+                    
+                    if len(methods) > 5:
+                        more_id = f"{class_id}_MORE"
+                        lines.append(f"    {methods_id} --> {more_id}[\"... {len(methods) - 5} more methods\"]")
+                        lines.append(f"    style {more_id} fill:#f5f5f5,stroke:#999")
+                
+                # Add class variables
+                class_vars = cls.get('class_variables', [])
+                if class_vars:
+                    vars_id = f"{class_id}_VARS"
+                    lines.append(f"    {class_id} --> {vars_id}[\"📊 Class Variables ({len(class_vars)})\"]")
+                    lines.append(f"    style {vars_id} fill:#e0f2f1,stroke:#009688")
+                    
+                    for var in class_vars[:3]:
+                        var_id = f"{class_id}_VAR_{var['name']}".replace(' ', '_')
+                        lines.append(f"    {vars_id} --> {var_id}[\"{var['name']}\"]")
+                        lines.append(f"    style {var_id} fill:#b2dfdb,stroke:#00796b")
+        
+        # Add top-level functions section
+        if top_level_funcs:
+            funcs_id = "FUNCTIONS"
+            lines.append(f"    {root_id} --> {funcs_id}[\"⚙️ Top-Level Functions ({len(top_level_funcs)})\"]")
+            lines.append(f"    style {funcs_id} fill:#fff4e6,stroke:#ff9800,stroke-width:2px")
+            
+            for func in top_level_funcs[:10]:  # Limit to 10 for readability
+                func_id = f"FUNC_{func['name']}".replace(' ', '_')
+                func_label = func['name']
+                if func.get('is_async'):
+                    func_label = f"🔁 {func_label}"
+                func_label += "()"
+                
+                # Add parameter count
+                params = func.get('parameters', [])
+                if params:
+                    param_count = len([p for p in params if p != 'self'])
+                    if param_count > 0:
+                        func_label += f"\\n({param_count} params)"
+                
+                lines.append(f"    {funcs_id} --> {func_id}[\"{func_label}\"]")
+                lines.append(f"    style {func_id} fill:#e8f5e9,stroke:#4caf50")
+            
+            if len(top_level_funcs) > 10:
+                more_funcs_id = "MORE_FUNCS"
+                lines.append(f"    {funcs_id} --> {more_funcs_id}[\"... {len(top_level_funcs) - 10} more functions\"]")
+                lines.append(f"    style {more_funcs_id} fill:#f5f5f5,stroke:#999")
+        
+        # Add nested functions section if any
+        if nested_funcs:
+            nested_id = "NESTED"
+            lines.append(f"    {root_id} --> {nested_id}[\"🔗 Nested Functions ({len(nested_funcs)})\"]")
+            lines.append(f"    style {nested_id} fill:#f3e5f5,stroke:#9c27b0")
+            
+            for func in nested_funcs[:5]:  # Limit to 5
+                nested_func_id = f"NESTED_{func['name']}".replace(' ', '_')
+                func_label = func['name']
+                if func.get('is_async'):
+                    func_label = f"🔁 {func_label}"
+                func_label += "()"
+                lines.append(f"    {nested_id} --> {nested_func_id}[\"{func_label}\"]")
+                lines.append(f"    style {nested_func_id} fill:#fce4ec,stroke:#e91e63")
+            
+            if len(nested_funcs) > 5:
+                more_nested_id = "MORE_NESTED"
+                lines.append(f"    {nested_id} --> {more_nested_id}[\"... {len(nested_funcs) - 5} more nested\"]")
+                lines.append(f"    style {more_nested_id} fill:#f5f5f5,stroke:#999")
+        
+        # Add global variables section
+        global_vars = self.parse_result.get('global_variables', [])
+        if global_vars:
+            globals_id = "GLOBALS"
+            lines.append(f"    {root_id} --> {globals_id}[\"🌍 Global Variables ({len(global_vars)})\"]")
+            lines.append(f"    style {globals_id} fill:#e0f2f1,stroke:#009688")
+            
+            for var in global_vars[:5]:  # Limit to 5
+                var_id = f"GLOBAL_{var.get('name', 'var')}".replace(' ', '_')
+                var_name = var.get('name', 'variable')
+                lines.append(f"    {globals_id} --> {var_id}[\"{var_name}\"]")
+                lines.append(f"    style {var_id} fill:#b2dfdb,stroke:#00796b")
+        
+        lines.append("```")
+        return "\n".join(lines)
+    
     def _generate_combined_flowchart(self, funcs: List[Dict]) -> str:
         """Generate flowchart showing multiple functions."""
         lines = ["```mermaid", "flowchart TD"]

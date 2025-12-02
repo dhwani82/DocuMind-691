@@ -105,13 +105,34 @@ async function parseCode() {
     }
 }
 
+function toggleProviderSettings() {
+    const provider = document.getElementById('provider-select').value;
+    const openaiSettings = document.getElementById('openai-settings');
+    const ollamaSettings = document.getElementById('ollama-settings');
+    
+    if (provider === 'openai') {
+        openaiSettings.style.display = 'block';
+        ollamaSettings.style.display = 'none';
+    } else if (provider === 'ollama') {
+        openaiSettings.style.display = 'none';
+        ollamaSettings.style.display = 'block';
+    } else {
+        openaiSettings.style.display = 'none';
+        ollamaSettings.style.display = 'none';
+    }
+}
+
 async function generateDocumentation() {
     if (!currentCode) {
         showError('Please analyze code first');
         return;
     }
     
+    const provider = document.getElementById('provider-select').value;
     const apiKey = document.getElementById('api-key-input').value.trim();
+    const ollamaModel = document.getElementById('ollama-model-input')?.value.trim() || 'llama2';
+    const ollamaBaseUrl = document.getElementById('ollama-url-input')?.value.trim() || 'http://localhost:11434';
+    
     hideError();
     
     // Show loading state
@@ -121,15 +142,25 @@ async function generateDocumentation() {
     docBtn.disabled = true;
     
     try {
+        const requestBody = {
+            code: currentCode,
+            provider: provider
+        };
+        
+        if (provider === 'openai') {
+            requestBody.api_key = apiKey || null;
+        } else if (provider === 'ollama') {
+            requestBody.ollama_model = ollamaModel;
+            requestBody.ollama_base_url = ollamaBaseUrl;
+        }
+        // For 'template', no additional fields needed - backend will handle it
+        
         const response = await fetch('/api/generate-docs', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ 
-                code: currentCode,
-                api_key: apiKey || null
-            })
+            body: JSON.stringify(requestBody)
         });
         
         // Check if response is JSON
@@ -375,6 +406,10 @@ function displaySummary(data) {
             <div class="value">${summary.global_variables}</div>
         </div>
         <div class="stat-card">
+            <h3>Local Variables</h3>
+            <div class="value">${summary.local_variables || 0}</div>
+        </div>
+        <div class="stat-card">
             <h3>Class Variables</h3>
             <div class="value">${summary.class_variables}</div>
         </div>
@@ -428,6 +463,51 @@ function displaySummary(data) {
                     </div>
                 </div>
             `;
+        });
+    }
+    
+    if (data.global_variables && data.global_variables.length > 0) {
+        summaryView.innerHTML += createDetailSection('Global Variables', data.global_variables, (v) => {
+            return `
+                <div class="detail-item">
+                    <div class="name">${v.name}</div>
+                    <div class="meta">
+                        <span>Line: ${v.line}</span>
+                        ${v.type && v.type !== 'unknown' ? `<span>Type: ${v.type}</span>` : ''}
+                    </div>
+                </div>
+            `;
+        });
+    }
+    
+    if (data.local_variables && data.local_variables.length > 0) {
+        // Group local variables by function
+        const varsByFunction = {};
+        data.local_variables.forEach(v => {
+            const funcName = v.function;
+            if (!varsByFunction[funcName]) {
+                varsByFunction[funcName] = [];
+            }
+            varsByFunction[funcName].push(v);
+        });
+        
+        // Display grouped by function
+        Object.keys(varsByFunction).forEach(funcName => {
+            const funcVars = varsByFunction[funcName];
+            const isMethod = funcVars[0].is_method;
+            const sectionTitle = isMethod ? `Local Variables in ${funcName}` : `Local Variables in ${funcName}()`;
+            
+            summaryView.innerHTML += createDetailSection(sectionTitle, funcVars, (v) => {
+                return `
+                    <div class="detail-item">
+                        <div class="name">${v.name}</div>
+                        <div class="meta">
+                            <span>Line: ${v.line}</span>
+                            ${v.type && v.type !== 'unknown' ? `<span>Type: ${v.type}</span>` : ''}
+                        </div>
+                    </div>
+                `;
+            });
         });
     }
     
@@ -579,6 +659,7 @@ function displayDiagrams(diagrams) {
     renderDiagram('sequence-mermaid', diagrams.sequence);
     renderDiagram('dependencies-mermaid', diagrams.dependencies);
     renderDiagram('flowchart-mermaid', diagrams.flowchart);
+    renderDiagram('structure-mermaid', diagrams.structure);
 }
 
 function switchDiagramTab(tab) {

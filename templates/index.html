@@ -41,9 +41,26 @@
                 </div>
 
                 <div class="api-key-section">
-                    <label for="api-key-input">OpenAI API Key (Optional - for enhanced LLM documentation):</label>
-                    <input type="password" id="api-key-input" placeholder="sk-..." class="api-key-input">
-                    <small>Leave empty to use template-based documentation</small>
+                    <label for="provider-select">LLM Provider:</label>
+                    <select id="provider-select" class="provider-select" onchange="toggleProviderSettings()">
+                        <option value="openai">OpenAI</option>
+                        <option value="ollama">Ollama</option>
+                        <option value="template">Template (No LLM)</option>
+                    </select>
+                    
+                    <div id="openai-settings" class="provider-settings">
+                        <label for="api-key-input">OpenAI API Key:</label>
+                        <input type="password" id="api-key-input" placeholder="sk-..." class="api-key-input">
+                        <small>Enter your OpenAI API key for AI-enhanced documentation</small>
+                    </div>
+                    
+                    <div id="ollama-settings" class="provider-settings" style="display: none;">
+                        <label for="ollama-model-input">Ollama Model:</label>
+                        <input type="text" id="ollama-model-input" placeholder="llama2" value="llama2" class="api-key-input">
+                        <small>Model name (e.g., llama2, mistral, codellama). Make sure Ollama is running locally.</small>
+                        <label for="ollama-url-input" style="margin-top: 10px;">Ollama Base URL:</label>
+                        <input type="text" id="ollama-url-input" placeholder="http://localhost:11434" value="http://localhost:11434" class="api-key-input">
+                    </div>
                 </div>
 
                 <div class="action-buttons">
@@ -100,6 +117,7 @@
                     <button class="diagram-tab-btn" onclick="switchDiagramTab('sequence')">Sequence</button>
                     <button class="diagram-tab-btn" onclick="switchDiagramTab('dependencies')">Dependencies</button>
                     <button class="diagram-tab-btn" onclick="switchDiagramTab('flowchart')">Flowchart</button>
+                    <button class="diagram-tab-btn" onclick="switchDiagramTab('structure')">Structure</button>
                 </div>
 
                 <div id="architecture-diagram" class="diagram-content active">
@@ -133,6 +151,12 @@
                             </svg>
                             <span>Download SVG Flowchart</span>
                         </button>
+                    </div>
+                </div>
+
+                <div id="structure-diagram" class="diagram-content">
+                    <div class="diagram-container">
+                        <div class="mermaid" id="structure-mermaid"></div>
                     </div>
                 </div>
             </div>

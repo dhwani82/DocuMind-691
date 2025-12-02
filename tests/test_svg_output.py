@@ -1,3 +1,7 @@
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from svg_generator import SVGFlowchartGenerator
 from code_parser import CodeParser
 
@@ -22,7 +26,8 @@ svg_gen = SVGFlowchartGenerator(result)
 svg = svg_gen.generate_svg_flowchart()
 
 # Save to file
-with open('test_flowchart.svg', 'w') as f:
+output_path = os.path.join(os.path.dirname(__file__), 'test_flowchart.svg')
+with open(output_path, 'w') as f:
     f.write(svg)
 
 print("SVG file created: test_flowchart.svg")

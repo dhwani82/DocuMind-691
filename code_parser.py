@@ -7,6 +7,7 @@ class CodeParser:
         self.functions = []
         self.classes = []
         self.global_vars = []
+        self.local_vars = []  # Track local variables in functions/methods
         self.imports = []
         self.decorators = []
         self.function_calls = []  # Track function calls: (caller, callee, line)
@@ -25,6 +26,7 @@ class CodeParser:
         self.functions = []
         self.classes = []
         self.global_vars = []
+        self.local_vars = []
         self.imports = []
         self.decorators = []
         self.function_calls = []
@@ -62,6 +64,7 @@ class CodeParser:
                 'total_classes': len(self.classes),
                 'total_methods': len(methods),
                 'global_variables': len(self.global_vars),
+                'local_variables': len(self.local_vars),
                 'class_variables': len(class_vars),
                 'instance_variables': len(instance_vars),
                 'total_decorators': len(self.decorators),
@@ -70,6 +73,7 @@ class CodeParser:
             'functions': self.functions,
             'classes': self.classes,
             'global_variables': self.global_vars,
+            'local_variables': self.local_vars,
             'imports': self.imports,
             'decorators': self.decorators,
             'function_calls': self.function_calls,
@@ -232,10 +236,24 @@ class CodeVisitor(ast.NodeVisitor):
                     # Class variable (assigned at class level, not inside a method)
                     if var_name not in [v['name'] for v in self.current_class['class_variables']]:
                         self.current_class['class_variables'].append(var_info)
-                elif not self.current_class:
-                    # Global variable
+                elif not self.current_class and self.current_function is None and self.nesting_level == 0:
+                    # Global variable - only at module level (not inside function or class)
                     if var_name not in [v['name'] for v in self.parser.global_vars]:
                         self.parser.global_vars.append(var_info)
+                elif self.current_function is not None:
+                    # Local variable - inside a function or method
+                    local_var_info = {
+                        'name': var_name,
+                        'line': node.lineno,
+                        'type': self._infer_type(node.value),
+                        'function': self.current_function,
+                        'is_method': self.inside_method
+                    }
+                    # Check if this variable is already tracked for this function
+                    existing = [v for v in self.parser.local_vars 
+                               if v['name'] == var_name and v['function'] == self.current_function]
+                    if not existing:
+                        self.parser.local_vars.append(local_var_info)
             elif isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name):
                 # Instance variable (self.attr = value)
                 if target.value.id == 'self':
@@ -264,10 +282,24 @@ class CodeVisitor(ast.NodeVisitor):
                 # Class variable (annotated at class level)
                 if var_name not in [v['name'] for v in self.current_class['class_variables']]:
                     self.current_class['class_variables'].append(var_info)
-            elif not self.current_class:
-                # Global variable
+            elif not self.current_class and self.current_function is None and self.nesting_level == 0:
+                # Global variable - only at module level (not inside function or class)
                 if var_name not in [v['name'] for v in self.parser.global_vars]:
                     self.parser.global_vars.append(var_info)
+            elif self.current_function is not None:
+                # Local variable - inside a function or method
+                local_var_info = {
+                    'name': var_name,
+                    'line': node.lineno,
+                    'type': self._get_annotation_name(node.annotation) if node.annotation else None,
+                    'function': self.current_function,
+                    'is_method': self.inside_method
+                }
+                # Check if this variable is already tracked for this function
+                existing = [v for v in self.parser.local_vars 
+                           if v['name'] == var_name and v['function'] == self.current_function]
+                if not existing:
+                    self.parser.local_vars.append(local_var_info)
         elif isinstance(node.target, ast.Attribute) and isinstance(node.target.value, ast.Name):
             if node.target.value.id == 'self':
                 var_info = {

@@ -1,4 +1,9 @@
+import sys
+import os
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from code_parser import CodeParser
+from diagram_generator import DiagramGenerator
 
 code = """
 def test_function(x):
@@ -17,8 +22,7 @@ def loop_example(items):
 
 parser = CodeParser()
 result = parser.parse(code)
-print(f"Functions: {len(result['functions'])}")
-print(f"Control flow items: {len(result.get('control_flow', []))}")
-for cf in result.get('control_flow', []):
-    print(f"  {cf}")
+diagram_gen = DiagramGenerator(result)
+flowchart = diagram_gen.generate_flowchart()
+print(flowchart)
 
