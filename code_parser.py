@@ -18,6 +18,7 @@ class CodeParser:
         self.warnings = []  # Track code warnings (shadowed variables, duplicates, etc.)
         self.global_declarations = {}  # Track global declarations per function
         self.nonlocal_declarations = {}  # Track nonlocal declarations per function
+        self.import_usage = []  # Track which classes/functions use which imports: (entity, import_module, line)
         
     def parse(self, code: str) -> Dict[str, Any]:
         """Parse Python code and extract all relevant information."""
@@ -41,6 +42,7 @@ class CodeParser:
         self.warnings = []
         self.global_declarations = {}
         self.nonlocal_declarations = {}
+        self.import_usage = []
         
         # Visit all nodes
         visitor = CodeVisitor(self)
@@ -93,7 +95,8 @@ class CodeParser:
             'method_calls': self.method_calls,
             'class_instantiations': self.class_instantiations,
             'control_flow': self.control_flow,
-            'warnings': self.warnings
+            'warnings': self.warnings,
+            'import_usage': self.import_usage
         }
     
     def _detect_warnings(self):
@@ -579,6 +582,8 @@ class CodeVisitor(ast.NodeVisitor):
                     'callee': callee,
                     'line': line
                 })
+                # Check if callee is from an import
+                self._track_import_usage(callee, caller, line)
         elif isinstance(node.func, ast.Attribute):
             # Method call or attribute access: obj.method()
             if isinstance(node.func.value, ast.Name):
@@ -602,6 +607,8 @@ class CodeVisitor(ast.NodeVisitor):
                         'callee': full_name,
                         'line': line
                     })
+                    # Check if obj_name is from an import
+                    self._track_import_usage(obj_name, caller, line)
             else:
                 # Complex attribute access
                 full_name = self._get_attribute_name(node.func)
@@ -610,8 +617,54 @@ class CodeVisitor(ast.NodeVisitor):
                     'callee': full_name,
                     'line': line
                 })
+                # Try to extract module from complex attribute
+                if isinstance(node.func.value, ast.Attribute):
+                    module_part = self._extract_module_from_attribute(node.func.value)
+                    if module_part:
+                        self._track_import_usage(module_part, caller, line)
         
         self.generic_visit(node)
+    
+    def _track_import_usage(self, name: str, entity: str, line: int):
+        """Track if a name is from an import."""
+        # Check all imports to see if this name matches
+        for imp in self.parser.imports:
+            if imp['type'] == 'import':
+                # import module -> check if name matches module or module.name
+                module = imp['module']
+                if name == module or name.startswith(module + '.'):
+                    self.parser.import_usage.append({
+                        'entity': entity,
+                        'import_module': module,
+                        'import_name': name,
+                        'line': line
+                    })
+            elif imp['type'] == 'from_import':
+                # from module import name -> check if name matches
+                if imp.get('name') == name:
+                    module = imp.get('module', '')
+                    self.parser.import_usage.append({
+                        'entity': entity,
+                        'import_module': module,
+                        'import_name': name,
+                        'line': line
+                    })
+                # Also check if name matches module
+                elif imp.get('module') and name.startswith(imp['module'] + '.'):
+                    self.parser.import_usage.append({
+                        'entity': entity,
+                        'import_module': imp['module'],
+                        'import_name': name,
+                        'line': line
+                    })
+    
+    def _extract_module_from_attribute(self, node):
+        """Extract module name from attribute access like module.submodule.func."""
+        if isinstance(node.value, ast.Name):
+            return node.value.id
+        elif isinstance(node.value, ast.Attribute):
+            return self._extract_module_from_attribute(node.value)
+        return None
     
     def visit_If(self, node):
         """Track if/else control flow."""

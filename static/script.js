@@ -880,7 +880,7 @@ function displayDiagrams(diagrams) {
         const element = document.getElementById(elementId);
         if (!element || !diagramCode) return;
         
-        // Clean the diagram code
+        // Clean the diagram code - remove markdown code fences
         let cleanCode = diagramCode.replace(/```mermaid\n?/g, '').replace(/```\n?/g, '').trim();
         
         // Check if Mermaid is loaded
@@ -895,8 +895,9 @@ function displayDiagrams(diagrams) {
                 mermaid.initialize({ 
                     startOnLoad: false,
                     theme: 'default',
-                    flowchart: { useMaxWidth: true },
-                    sequence: { diagramMarginX: 50, diagramMarginY: 10 }
+                    flowchart: { useMaxWidth: true, htmlLabels: true },
+                    sequence: { diagramMarginX: 50, diagramMarginY: 10 },
+                    graph: { useMaxWidth: true, htmlLabels: true }
                 });
                 window.mermaidInitialized = true;
             } catch (err) {
@@ -904,26 +905,94 @@ function displayDiagrams(diagrams) {
             }
         }
         
-        // Set the diagram code
+        // Clear the element first
+        element.innerHTML = '';
+        
+        // Ensure the element has the mermaid class
+        element.classList.add('mermaid');
+        
+        // Set the diagram code as text content (Mermaid will parse this)
         element.textContent = cleanCode;
         
-        // Render the diagram
-        try {
-            mermaid.run({ 
-                nodes: [element],
-                suppressErrors: true
-            }).catch(err => {
+        // Render the diagram using mermaid.render for more reliable rendering
+        setTimeout(() => {
+            try {
+                // Use mermaid.render which is more reliable for v10+
+                if (typeof mermaid.render === 'function') {
+                    const uniqueId = `mermaid-${elementId}-${Date.now()}`;
+                    mermaid.render(uniqueId, cleanCode).then(({ svg, bindFunctions }) => {
+                        element.innerHTML = svg;
+                        if (bindFunctions) {
+                            bindFunctions(element);
+                        }
+                        console.log(`Successfully rendered ${elementId} using mermaid.render`);
+                    }).catch(err => {
+                        console.error(`Error rendering ${elementId} with mermaid.render:`, err);
+                        // Fallback to mermaid.run
+                        if (typeof mermaid.run === 'function') {
+                            element.textContent = cleanCode;
+                            mermaid.run({ 
+                                nodes: [element],
+                                suppressErrors: false
+                            }).then(() => {
+                                console.log(`Successfully rendered ${elementId} using mermaid.run`);
+                            }).catch(runErr => {
+                                console.error('mermaid.run also failed:', runErr);
+                                element.innerHTML = `<div style="color: #c33; padding: 20px; background: #fff3f3; border: 1px solid #ffcccc; border-radius: 4px;">
+                                    <p><strong>⚠️ Error rendering diagram:</strong></p>
+                                    <p style="font-size: 0.9em;">${err.message || runErr.message || 'Unknown error'}</p>
+                                    <details style="margin-top: 10px;">
+                                        <summary style="cursor: pointer; color: #666;">Show diagram code</summary>
+                                        <pre style="font-size: 0.75em; overflow: auto; max-height: 300px; background: #f5f5f5; padding: 10px; margin-top: 10px; border: 1px solid #ddd; border-radius: 4px; white-space: pre-wrap;">${cleanCode}</pre>
+                                    </details>
+                                </div>`;
+                            });
+                        } else {
+                            element.innerHTML = `<div style="color: #c33; padding: 20px; background: #fff3f3; border: 1px solid #ffcccc; border-radius: 4px;">
+                                <p><strong>⚠️ Error rendering diagram:</strong></p>
+                                <p style="font-size: 0.9em;">${err.message || 'Unknown error'}</p>
+                                <details style="margin-top: 10px;">
+                                    <summary style="cursor: pointer; color: #666;">Show diagram code</summary>
+                                    <pre style="font-size: 0.75em; overflow: auto; max-height: 300px; background: #f5f5f5; padding: 10px; margin-top: 10px; border: 1px solid #ddd; border-radius: 4px; white-space: pre-wrap;">${cleanCode}</pre>
+                                </details>
+                            </div>`;
+                        }
+                    });
+                } else if (typeof mermaid.run === 'function') {
+                    // Fallback to mermaid.run
+                    mermaid.run({ 
+                        nodes: [element],
+                        suppressErrors: false
+                    }).then(() => {
+                        console.log(`Successfully rendered ${elementId} using mermaid.run`);
+                    }).catch(err => {
+                        console.error(`Error rendering ${elementId}:`, err);
+                        element.innerHTML = `<div style="color: #c33; padding: 20px; background: #fff3f3; border: 1px solid #ffcccc; border-radius: 4px;">
+                            <p><strong>⚠️ Error rendering diagram:</strong></p>
+                            <p style="font-size: 0.9em;">${err.message || 'Unknown error'}</p>
+                            <details style="margin-top: 10px;">
+                                <summary style="cursor: pointer; color: #666;">Show diagram code</summary>
+                                <pre style="font-size: 0.75em; overflow: auto; max-height: 300px; background: #f5f5f5; padding: 10px; margin-top: 10px; border: 1px solid #ddd; border-radius: 4px; white-space: pre-wrap;">${cleanCode}</pre>
+                            </details>
+                        </div>`;
+                    });
+                } else if (typeof mermaid.init === 'function') {
+                    // Fallback for older Mermaid versions
+                    mermaid.init(undefined, element);
+                } else {
+                    element.innerHTML = '<p style="color: #c33;">Mermaid.js version not supported. Please update to v10+.</p>';
+                }
+            } catch (err) {
                 console.error(`Error rendering ${elementId}:`, err);
-                element.innerHTML = `<p style="color: #c33; padding: 20px;">Error rendering diagram. Diagram code:<br><pre style="font-size: 0.8em; overflow: auto;">${cleanCode.substring(0, 500)}</pre></p>`;
-            });
-        } catch (err) {
-            console.error(`Error rendering ${elementId}:`, err);
-            element.innerHTML = `<p style="color: #c33;">Error rendering diagram.</p>`;
-        }
+                element.innerHTML = `<p style="color: #c33;">Error rendering diagram: ${err.message}</p>`;
+            }
+        }, 100);
     };
     
     // Render all diagrams
-    renderDiagram('architecture-mermaid', diagrams.architecture);
+    // Use code_architecture if available, otherwise fall back to architecture
+    const architectureDiagram = diagrams.code_architecture || diagrams.architecture;
+    renderDiagram('architecture-mermaid', architectureDiagram);
     renderDiagram('sequence-mermaid', diagrams.sequence);
     renderDiagram('dependencies-mermaid', diagrams.dependencies);
     renderDiagram('flowchart-mermaid', diagrams.flowchart);

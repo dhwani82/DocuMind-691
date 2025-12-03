@@ -19,6 +19,7 @@ class DiagramGenerator:
         self.class_instantiations = parse_result.get('class_instantiations', [])
         self.imports = parse_result.get('imports', [])
         self.control_flow = parse_result.get('control_flow', [])
+        self.import_usage = parse_result.get('import_usage', [])
     
     def generate_architecture_diagram(self) -> str:
         """Generate Mermaid diagram showing comprehensive code structure.
@@ -553,6 +554,133 @@ class DiagramGenerator:
         
         lines.append("```")
         return "\n".join(lines)
+    
+    def generate_code_architecture_diagram(self) -> str:
+        """Generate high-level architecture diagram in clean, readable Mermaid.js format.
+        
+        Returns:
+            Mermaid diagram code as string in clean format matching user requirements
+        """
+        lines = ["```mermaid", "graph TD"]
+        lines.append("")
+        
+        # Module node (top-level) with styling
+        module_id = "MODULE"
+        lines.append(f"    {module_id}[\"📄 Module\"]")
+        lines.append(f"    style {module_id} fill:#e8f5e9,stroke:#4caf50,stroke-width:3px")
+        lines.append("")
+        
+        # Get top-level functions (not nested, not methods)
+        top_level_funcs = [f for f in self.functions if not f.get('is_nested', False)]
+        
+        # Create mappings for reliable node ID lookups
+        class_node_map = {}  # class_name -> node_id
+        func_node_map = {}  # func_name -> node_id
+        
+        # Add all classes - simple format, no extra comments
+        if self.classes:
+            for cls in self.classes:
+                class_name = cls['name']
+                class_id = f"CLASS_{self._sanitize_id(class_name)}"
+                class_node_map[class_name] = class_id
+                class_label = f"🏛️ {class_name}"
+                lines.append(f"    {module_id} --> {class_id}[\"{class_label}\"]")
+                lines.append(f"    style {class_id} fill:#e3f2fd,stroke:#2196F3,stroke-width:2px")
+        
+        # Add all top-level functions - simple format, orange color
+        if top_level_funcs:
+            for func in top_level_funcs:
+                func_name = func['name']
+                func_id = f"FUNC_{self._sanitize_id(func_name)}"
+                func_node_map[func_name] = func_id
+                func_label = f"⚙️ {func_name}()"
+                lines.append(f"    {module_id} --> {func_id}[\"{func_label}\"]")
+                lines.append(f"    style {func_id} fill:#fff3e0,stroke:#f57c00,stroke-width:2px")
+        
+        # Track relationships to avoid duplicates
+        relationships = set()
+        
+        # Add Key Relationships section
+        lines.append("")
+        lines.append("    %% Key Relationships")
+        lines.append("")
+        
+        # 1. Class Inheritance Relationships
+        for cls in self.classes:
+            if cls.get('bases'):
+                class_name = cls['name']
+                class_id = class_node_map.get(class_name)
+                
+                for base in cls['bases']:
+                    # Extract base class name (handle cases like "module.BaseClass")
+                    base_name = base.split('.')[-1]
+                    
+                    # Check if base class is in our classes (not external)
+                    base_class_id = class_node_map.get(base_name)
+                    
+                    if base_class_id and class_id:
+                        rel_key = (class_id, base_class_id, 'inherits')
+                        if rel_key not in relationships:
+                            relationships.add(rel_key)
+                            lines.append(f"    {class_id} -.->|inherits| {base_class_id}")
+        
+        # 2. Functions -> Classes (from class instantiations)
+        for inst in self.class_instantiations:
+            caller = inst['caller']
+            class_name = inst['class_name']
+            
+            # Get caller ID (can be function or method)
+            caller_id = None
+            if '.' in caller:
+                # It's a method, get the class
+                class_name_from_caller = caller.split('.')[0]
+                caller_id = class_node_map.get(class_name_from_caller)
+            else:
+                # It's a function
+                caller_id = func_node_map.get(caller)
+            
+            # Get class ID
+            target_class_id = class_node_map.get(class_name)
+            
+            if caller_id and target_class_id and caller_id != target_class_id:
+                rel_key = (caller_id, target_class_id)
+                if rel_key not in relationships:
+                    relationships.add(rel_key)
+                    lines.append(f"    {caller_id} --> {target_class_id}")
+        
+        # 3. Functions -> Functions (from function calls)
+        for call in self.function_calls:
+            caller = call['caller']
+            callee = call['callee']
+            
+            # Get caller ID (only top-level functions)
+            if '.' in caller:
+                # It's a method, skip for now (we focus on top-level)
+                continue
+            
+            caller_id = func_node_map.get(caller)
+            
+            # Get callee ID (only if it's a top-level function)
+            if '.' in callee:
+                # It's a method call or external, skip
+                continue
+            
+            callee_id = func_node_map.get(callee)
+            
+            if caller_id and callee_id and caller_id != callee_id:
+                rel_key = (caller_id, callee_id)
+                if rel_key not in relationships:
+                    relationships.add(rel_key)
+                    lines.append(f"    {caller_id} --> {callee_id}")
+        
+        lines.append("")
+        lines.append("```")
+        return "\n".join(lines)
+    
+    def _sanitize_id(self, name: str) -> str:
+        """Sanitize a name to be used as a Mermaid node ID."""
+        # Replace spaces, dots, dashes with underscores, and remove special chars
+        return name.replace(' ', '_').replace('.', '_').replace('-', '_').replace('/', '_')
     
     def generate_sequence_diagram(self) -> str:
         """Generate Mermaid sequence diagram showing function call sequences.

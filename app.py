@@ -36,6 +36,7 @@ def parse_code():
         diagram_gen = DiagramGenerator(result)
         diagrams = {
             'architecture': diagram_gen.generate_architecture_diagram(),
+            'code_architecture': diagram_gen.generate_code_architecture_diagram(),  # New detailed architecture diagram
             'sequence': diagram_gen.generate_sequence_diagram(),
             'dependencies': diagram_gen.generate_dependency_diagram(),
             'flowchart': diagram_gen.generate_flowchart(),
