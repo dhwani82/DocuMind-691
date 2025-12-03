@@ -27,7 +27,7 @@
 
                 <div id="upload-tab" class="tab-content">
                     <div class="upload-area" id="upload-area">
-                        <input type="file" id="file-input" accept=".py" style="display: none;">
+                        <input type="file" id="file-input" accept=".py,.pyw,.pyi,.js,.jsx,.mjs,.java,.c,.cpp,.cc,.cxx,.h,.hpp,.hxx,.php,.phtml,.sql" style="display: none;">
                         <div class="upload-placeholder">
                             <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                                 <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
@@ -35,31 +35,8 @@
                                 <line x1="12" y1="3" x2="12" y2="15"></line>
                             </svg>
                             <p>Click to upload or drag and drop</p>
-                            <p class="upload-hint">Python files (.py) only</p>
+                            <p class="upload-hint">Supported: .py, .js, .jsx, .java, .c, .cpp, .php, .sql</p>
                         </div>
-                    </div>
-                </div>
-
-                <div class="api-key-section">
-                    <label for="provider-select">LLM Provider:</label>
-                    <select id="provider-select" class="provider-select" onchange="toggleProviderSettings()">
-                        <option value="openai">OpenAI</option>
-                        <option value="ollama">Ollama</option>
-                        <option value="template">Template (No LLM)</option>
-                    </select>
-                    
-                    <div id="openai-settings" class="provider-settings">
-                        <label for="api-key-input">OpenAI API Key:</label>
-                        <input type="password" id="api-key-input" placeholder="sk-..." class="api-key-input">
-                        <small>Enter your OpenAI API key for AI-enhanced documentation</small>
-                    </div>
-                    
-                    <div id="ollama-settings" class="provider-settings" style="display: none;">
-                        <label for="ollama-model-input">Ollama Model:</label>
-                        <input type="text" id="ollama-model-input" placeholder="llama2" value="llama2" class="api-key-input">
-                        <small>Model name (e.g., llama2, mistral, codellama). Make sure Ollama is running locally.</small>
-                        <label for="ollama-url-input" style="margin-top: 10px;">Ollama Base URL:</label>
-                        <input type="text" id="ollama-url-input" placeholder="http://localhost:11434" value="http://localhost:11434" class="api-key-input">
                     </div>
                 </div>
 
@@ -91,7 +68,7 @@
                         <button class="action-btn" onclick="toggleView()">
                             <span id="view-toggle">View JSON</span>
                         </button>
-                        <button class="action-btn" onclick="copyToClipboard()">
+                        <button class="action-btn" onclick="copyToClipboard(event)">
                             <span>Copy JSON</span>
                         </button>
                     </div>
@@ -113,11 +90,11 @@
                 </div>
 
                 <div class="diagram-tabs">
-                    <button class="diagram-tab-btn active" onclick="switchDiagramTab('architecture')">Architecture</button>
-                    <button class="diagram-tab-btn" onclick="switchDiagramTab('sequence')">Sequence</button>
-                    <button class="diagram-tab-btn" onclick="switchDiagramTab('dependencies')">Dependencies</button>
-                    <button class="diagram-tab-btn" onclick="switchDiagramTab('flowchart')">Flowchart</button>
-                    <button class="diagram-tab-btn" onclick="switchDiagramTab('structure')">Structure</button>
+                    <button class="diagram-tab-btn active" onclick="switchDiagramTab('architecture', event)">Architecture</button>
+                    <button class="diagram-tab-btn" onclick="switchDiagramTab('sequence', event)">Sequence</button>
+                    <button class="diagram-tab-btn" onclick="switchDiagramTab('dependencies', event)">Dependencies</button>
+                    <button class="diagram-tab-btn" onclick="switchDiagramTab('flowchart', event)">Flowchart</button>
+                    <button class="diagram-tab-btn" onclick="switchDiagramTab('structure', event)">Structure</button>
                 </div>
 
                 <div id="architecture-diagram" class="diagram-content active">
@@ -165,16 +142,16 @@
                 <div class="doc-header">
                     <h2>Generated Documentation</h2>
                     <div class="doc-tabs">
-                        <button class="doc-tab-btn active" onclick="switchDocTab('docstrings')">Docstrings</button>
-                        <button class="doc-tab-btn" onclick="switchDocTab('readme')">README.md</button>
-                        <button class="doc-tab-btn" onclick="switchDocTab('architecture')">ARCHITECTURE.md</button>
+                        <button class="doc-tab-btn active" onclick="switchDocTab('docstrings', event)">Docstrings</button>
+                        <button class="doc-tab-btn" onclick="switchDocTab('readme', event)">README.md</button>
+                        <button class="doc-tab-btn" onclick="switchDocTab('architecture', event)">ARCHITECTURE.md</button>
                     </div>
                 </div>
 
                 <div id="docstrings-view" class="doc-content active">
                     <div class="doc-actions">
                         <button class="action-btn" onclick="downloadDoc('docstrings')">Download Code with Docstrings</button>
-                        <button class="action-btn" onclick="copyDoc('docstrings')">Copy to Clipboard</button>
+                        <button class="action-btn" onclick="copyDoc('docstrings', event)">Copy to Clipboard</button>
                     </div>
                     <pre id="docstrings-content" class="doc-code"></pre>
                 </div>
@@ -182,7 +159,7 @@
                 <div id="readme-view" class="doc-content">
                     <div class="doc-actions">
                         <button class="action-btn" onclick="downloadDoc('readme')">Download README.md</button>
-                        <button class="action-btn" onclick="copyDoc('readme')">Copy to Clipboard</button>
+                        <button class="action-btn" onclick="copyDoc('readme', event)">Copy to Clipboard</button>
                     </div>
                     <div id="readme-content" class="doc-markdown"></div>
                 </div>
@@ -190,7 +167,7 @@
                 <div id="architecture-view" class="doc-content">
                     <div class="doc-actions">
                         <button class="action-btn" onclick="downloadDoc('architecture')">Download ARCHITECTURE.md</button>
-                        <button class="action-btn" onclick="copyDoc('architecture')">Copy to Clipboard</button>
+                        <button class="action-btn" onclick="copyDoc('architecture', event)">Copy to Clipboard</button>
                     </div>
                     <div id="architecture-content" class="doc-markdown"></div>
                 </div>

@@ -3,6 +3,7 @@ let currentData = null;
 let currentCode = '';
 let currentDocumentation = null;
 let varSectionCounter = 0;
+let currentFilename = null; // Store current filename for language detection
 
 function switchTab(tab) {
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
@@ -11,6 +12,8 @@ function switchTab(tab) {
     if (tab === 'paste') {
         document.querySelector('.tab-btn').classList.add('active');
         document.getElementById('paste-tab').classList.add('active');
+        // Reset filename when switching to paste tab (user might paste new code)
+        currentFilename = null;
     } else {
         document.querySelectorAll('.tab-btn')[1].classList.add('active');
         document.getElementById('upload-tab').classList.add('active');
@@ -21,43 +24,73 @@ function switchTab(tab) {
 const uploadArea = document.getElementById('upload-area');
 const fileInput = document.getElementById('file-input');
 
-uploadArea.addEventListener('click', () => fileInput.click());
+if (uploadArea && fileInput) {
+    uploadArea.addEventListener('click', () => fileInput.click());
 
-uploadArea.addEventListener('dragover', (e) => {
-    e.preventDefault();
-    uploadArea.classList.add('dragover');
-});
+    uploadArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadArea.classList.add('dragover');
+    });
 
-uploadArea.addEventListener('dragleave', () => {
-    uploadArea.classList.remove('dragover');
-});
+    uploadArea.addEventListener('dragleave', () => {
+        uploadArea.classList.remove('dragover');
+    });
 
-uploadArea.addEventListener('drop', (e) => {
-    e.preventDefault();
-    uploadArea.classList.remove('dragover');
-    const files = e.dataTransfer.files;
-    if (files.length > 0) {
-        handleFile(files[0]);
-    }
-});
+    uploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadArea.classList.remove('dragover');
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+            handleFile(files[0]);
+        }
+    });
 
-fileInput.addEventListener('change', (e) => {
-    if (e.target.files.length > 0) {
-        handleFile(e.target.files[0]);
-    }
-});
+    fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+            handleFile(e.target.files[0]);
+        }
+    });
+}
 
 function handleFile(file) {
-    if (!file.name.endsWith('.py')) {
-        showError('Please upload a Python (.py) file');
+    // Store filename for language detection
+    currentFilename = file.name;
+    
+    // Check if file extension is supported
+    const extension = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
+    const supportedExtensions = [
+        '.py', '.pyw', '.pyi',  // Python
+        '.js', '.jsx', '.mjs',  // JavaScript
+        '.java',                 // Java
+        '.c', '.cpp', '.cc', '.cxx', '.h', '.hpp', '.hxx',  // C/C++
+        '.php', '.phtml',        // PHP
+        '.sql'                   // SQL
+    ];
+    
+    if (!supportedExtensions.includes(extension)) {
+        showError(`File extension "${extension}" is not supported. Supported extensions: .py, .js, .jsx, .java, .c, .cpp, .php, .sql`);
         return;
     }
     
+    // Prioritize file content: load into text area and switch to paste tab
     const reader = new FileReader();
     reader.onload = (e) => {
-        document.getElementById('code-input').value = e.target.result;
+        // Set file content in text area (prioritize file content)
+        const textarea = document.getElementById('code-input');
+        textarea.value = e.target.result;
         currentCode = e.target.result;
+        
+        // Switch to paste tab to show the loaded content
         switchTab('paste');
+        
+        // Focus on textarea to show user the content is loaded
+        textarea.focus();
+        
+        // Scroll textarea to top
+        textarea.scrollTop = 0;
+    };
+    reader.onerror = () => {
+        showError('Error reading file. Please try again.');
     };
     reader.readAsText(file);
 }
@@ -66,7 +99,7 @@ async function parseCode() {
     const code = document.getElementById('code-input').value.trim();
     
     if (!code) {
-        showError('Please enter or upload some Python code');
+        showError('Please enter or upload some code');
         return;
     }
     
@@ -74,13 +107,19 @@ async function parseCode() {
     hideError();
     showLoading();
     
+    // Prepare request body with filename for language detection
+    const requestBody = { code: code };
+    if (currentFilename) {
+        requestBody.filename = currentFilename;
+    }
+    
     try {
         const response = await fetch('/api/parse', {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({ code: code })
+            body: JSON.stringify(requestBody)
         });
         
         const data = await response.json();
@@ -91,6 +130,21 @@ async function parseCode() {
         }
         
         currentData = data;
+        
+        // Log detected language if available
+        if (data.language) {
+            console.log(`Detected language: ${data.language}`);
+        }
+        
+        // Show info messages (e.g., JavaScript tree-sitter info)
+        if (data.info_messages && data.info_messages.length > 0) {
+            data.info_messages.forEach(msg => {
+                if (msg.type === 'info') {
+                    showInfo(msg.message);
+                }
+            });
+        }
+        
         displayResults(data);
         
         // Show documentation button after successful parse
@@ -106,33 +160,11 @@ async function parseCode() {
     }
 }
 
-function toggleProviderSettings() {
-    const provider = document.getElementById('provider-select').value;
-    const openaiSettings = document.getElementById('openai-settings');
-    const ollamaSettings = document.getElementById('ollama-settings');
-    
-    if (provider === 'openai') {
-        openaiSettings.style.display = 'block';
-        ollamaSettings.style.display = 'none';
-    } else if (provider === 'ollama') {
-        openaiSettings.style.display = 'none';
-        ollamaSettings.style.display = 'block';
-    } else {
-        openaiSettings.style.display = 'none';
-        ollamaSettings.style.display = 'none';
-    }
-}
-
 async function generateDocumentation() {
     if (!currentCode) {
         showError('Please analyze code first');
         return;
     }
-    
-    const provider = document.getElementById('provider-select').value;
-    const apiKey = document.getElementById('api-key-input').value.trim();
-    const ollamaModel = document.getElementById('ollama-model-input')?.value.trim() || 'llama2';
-    const ollamaBaseUrl = document.getElementById('ollama-url-input')?.value.trim() || 'http://localhost:11434';
     
     hideError();
     
@@ -144,17 +176,8 @@ async function generateDocumentation() {
     
     try {
         const requestBody = {
-            code: currentCode,
-            provider: provider
+            code: currentCode
         };
-        
-        if (provider === 'openai') {
-            requestBody.api_key = apiKey || null;
-        } else if (provider === 'ollama') {
-            requestBody.ollama_model = ollamaModel;
-            requestBody.ollama_base_url = ollamaBaseUrl;
-        }
-        // For 'template', no additional fields needed - backend will handle it
         
         const response = await fetch('/api/generate-docs', {
             method: 'POST',
@@ -231,7 +254,7 @@ function displayDocumentation(docs, usedLLM) {
     }
 }
 
-function switchDocTab(tab) {
+function switchDocTab(tab, event) {
     // Hide all tabs
     document.querySelectorAll('.doc-content').forEach(content => {
         content.classList.remove('active');
@@ -242,7 +265,16 @@ function switchDocTab(tab) {
     
     // Show selected tab
     document.getElementById(`${tab}-view`).classList.add('active');
-    event.target.classList.add('active');
+    if (event && event.target) {
+        event.target.classList.add('active');
+    } else {
+        // Fallback: find the button by tab name
+        document.querySelectorAll('.doc-tab-btn').forEach(btn => {
+            if (btn.textContent.trim().toLowerCase().includes(tab.toLowerCase())) {
+                btn.classList.add('active');
+            }
+        });
+    }
 }
 
 function downloadDoc(type) {
@@ -281,7 +313,7 @@ function downloadDoc(type) {
     URL.revokeObjectURL(url);
 }
 
-function copyDoc(type) {
+function copyDoc(type, event) {
     if (!currentDocumentation) return;
     
     let content;
@@ -300,12 +332,14 @@ function copyDoc(type) {
     }
     
     navigator.clipboard.writeText(content).then(() => {
-        const btn = event.target.closest('.action-btn');
-        const originalText = btn.textContent;
-        btn.textContent = 'Copied!';
-        setTimeout(() => {
-            btn.textContent = originalText;
-        }, 2000);
+        const btn = (event && event.target) ? event.target.closest('.action-btn') : null;
+        if (btn) {
+            const originalText = btn.textContent;
+            btn.textContent = 'Copied!';
+            setTimeout(() => {
+                btn.textContent = originalText;
+            }, 2000);
+        }
     });
 }
 
@@ -366,7 +400,7 @@ function displayResults(data) {
                 <button class="action-btn" onclick="toggleView()">
                     <span id="view-toggle">View JSON</span>
                 </button>
-                <button class="action-btn" onclick="copyToClipboard()">
+                <button class="action-btn" onclick="copyToClipboard(event)">
                     <span>Copy JSON</span>
                 </button>
             </div>
@@ -385,10 +419,106 @@ function displayResults(data) {
 function displaySummary(data) {
     const summaryView = document.getElementById('summary-view');
     const summary = data.summary;
+    const language = (data.language || 'python').toLowerCase();
     
     // Reset variable section counter
     varSectionCounter = 0;
     
+    // Check if SQL - show SQL-specific stats
+    if (language === 'sql') {
+        // Count primary keys across all tables
+        const totalPrimaryKeys = data.tables ? data.tables.reduce((sum, t) => {
+            return sum + (t.columns ? t.columns.filter(c => c.is_primary_key).length : 0);
+        }, 0) : 0;
+        
+        summaryView.innerHTML = `
+            <div class="stat-card">
+                <h3>Total Tables</h3>
+                <div class="value">${summary.total_tables || 0}</div>
+            </div>
+            <div class="stat-card">
+                <h3>Primary Keys</h3>
+                <div class="value">${totalPrimaryKeys}</div>
+                <div style="margin-top: 10px; font-size: 0.85rem; color: #666;">
+                    🔑 Primary key columns
+                </div>
+            </div>
+            <div class="stat-card">
+                <h3>Relationships</h3>
+                <div class="value">${summary.total_relationships || 0}</div>
+                <div style="margin-top: 10px; font-size: 0.85rem; color: #666;">
+                    Foreign key relationships
+                </div>
+            </div>
+            <div class="stat-card">
+                <h3>Total Columns</h3>
+                <div class="value">${data.tables ? data.tables.reduce((sum, t) => sum + (t.columns ? t.columns.length : 0), 0) : 0}</div>
+            </div>
+        `;
+        
+        // Add tables section
+        if (data.tables && data.tables.length > 0) {
+            summaryView.innerHTML += createDetailSection('Tables', data.tables, (table) => {
+                const columns = table.columns || [];
+                const pkCols = columns.filter(c => c.is_primary_key).map(c => c.name);
+                const fkCols = columns.filter(c => c.is_foreign_key).map(c => c.name);
+                
+                return `
+                    <div class="detail-item">
+                        <div class="name">${table.name}</div>
+                        <div class="meta">
+                            <span>Line: ${table.line || 'N/A'}</span>
+                            <span>Columns: ${columns.length}</span>
+                            ${pkCols.length > 0 ? `<span style="color: #FF9800; font-weight: 600;">🔑 Primary Key: ${pkCols.join(', ')}</span>` : '<span style="color: #999;">No primary key</span>'}
+                            ${fkCols.length > 0 ? `<span>🔗 FK: ${fkCols.length} foreign key(s)</span>` : ''}
+                        </div>
+                        ${columns.length > 0 ? `
+                            <div style="margin-top: 10px; padding-left: 20px; border-left: 2px solid #ddd;">
+                                <strong>Columns:</strong>
+                                <div style="margin-top: 5px; font-size: 0.9em;">
+                                    ${columns.map(col => {
+                                        const constraints = [];
+                                        let colStyle = 'margin: 3px 0;';
+                                        let nameStyle = '';
+                                        
+                                        if (col.is_primary_key) {
+                                            constraints.push('PK');
+                                            colStyle += ' background: #fff3e0; padding: 4px 8px; border-radius: 4px; border-left: 3px solid #FF9800;';
+                                            nameStyle = 'font-weight: 600; color: #FF9800;';
+                                        }
+                                        if (col.is_foreign_key) constraints.push('FK');
+                                        if (col.is_unique) constraints.push('UNIQUE');
+                                        if (col.is_not_null) constraints.push('NOT NULL');
+                                        
+                                        const constraintStr = constraints.length > 0 ? ` <span style="color: #666;">[${constraints.join(', ')}]</span>` : '';
+                                        return `<div style="${colStyle}">• <span style="${nameStyle}">${col.name}</span> <span style="color: #2196F3;">${col.type || 'unknown'}</span>${constraintStr}</div>`;
+                                    }).join('')}
+                                </div>
+                            </div>
+                        ` : ''}
+                    </div>
+                `;
+            });
+        }
+        
+        // Add relationships section
+        if (data.relationships && data.relationships.length > 0) {
+            summaryView.innerHTML += createDetailSection('Foreign Key Relationships', data.relationships, (rel) => {
+                return `
+                    <div class="detail-item">
+                        <div class="name">${rel.from_table}.${rel.from_column} → ${rel.to_table}.${rel.to_column}</div>
+                        <div class="meta">
+                            <span>Type: ${rel.type || 'foreign_key'}</span>
+                        </div>
+                    </div>
+                `;
+            });
+        }
+        
+        return; // Exit early for SQL
+    }
+    
+    // Python/JavaScript display (original code)
     summaryView.innerHTML = `
         <div class="stat-card">
             <h3>Total Functions</h3>
@@ -845,24 +975,43 @@ function toggleView() {
     }
 }
 
-function copyToClipboard() {
+function copyToClipboard(event) {
     if (!currentData) return;
     
     const jsonString = JSON.stringify(currentData, null, 2);
     navigator.clipboard.writeText(jsonString).then(() => {
-        const btn = event.target.closest('.action-btn');
-        const originalText = btn.querySelector('span').textContent;
-        btn.querySelector('span').textContent = 'Copied!';
-        setTimeout(() => {
-            btn.querySelector('span').textContent = originalText;
-        }, 2000);
+        const btn = (event && event.target) ? event.target.closest('.action-btn') : null;
+        if (btn) {
+            const span = btn.querySelector('span');
+            if (span) {
+                const originalText = span.textContent;
+                span.textContent = 'Copied!';
+                setTimeout(() => {
+                    span.textContent = originalText;
+                }, 2000);
+            }
+        }
     });
 }
 
 function showError(message) {
     const errorDiv = document.getElementById('error-message');
     errorDiv.textContent = message;
+    errorDiv.className = 'error-message';
     errorDiv.style.display = 'block';
+}
+
+function showInfo(message) {
+    const errorDiv = document.getElementById('error-message');
+    errorDiv.textContent = message;
+    errorDiv.className = 'info-message';
+    errorDiv.style.display = 'block';
+    // Auto-hide info messages after 5 seconds
+    setTimeout(() => {
+        if (errorDiv.className === 'info-message') {
+            hideError();
+        }
+    }, 5000);
 }
 
 function hideError() {
@@ -999,7 +1148,7 @@ function displayDiagrams(diagrams) {
     renderDiagram('structure-mermaid', diagrams.structure);
 }
 
-function switchDiagramTab(tab) {
+function switchDiagramTab(tab, event) {
     // Hide all tabs
     document.querySelectorAll('.diagram-content').forEach(content => {
         content.classList.remove('active');
@@ -1010,7 +1159,16 @@ function switchDiagramTab(tab) {
     
     // Show selected tab
     document.getElementById(`${tab}-diagram`).classList.add('active');
-    event.target.classList.add('active');
+    if (event && event.target) {
+        event.target.classList.add('active');
+    } else {
+        // Fallback: find the button by tab name
+        document.querySelectorAll('.diagram-tab-btn').forEach(btn => {
+            if (btn.textContent.trim().toLowerCase().includes(tab.toLowerCase())) {
+                btn.classList.add('active');
+            }
+        });
+    }
 }
 
 async function downloadSVGFlowchart() {

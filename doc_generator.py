@@ -9,49 +9,27 @@ try:
 except ImportError:
     OPENAI_AVAILABLE = False
 
-try:
-    import requests
-    REQUESTS_AVAILABLE = True
-except ImportError:
-    REQUESTS_AVAILABLE = False
 
 
 class DocumentationGenerator:
     """Generate professional documentation using LLM or template-based approach."""
     
-    def __init__(self, api_key: Optional[str] = None, provider: str = 'openai', 
-                 ollama_model: str = 'llama2', ollama_base_url: str = 'http://localhost:11434'):
+    def __init__(self, api_key: Optional[str] = None):
         """Initialize the documentation generator.
         
         Args:
-            api_key: OpenAI API key. If None and provider is 'openai', uses template-based generation.
-            provider: LLM provider to use ('openai' or 'ollama'). Defaults to 'openai'.
-            ollama_model: Model name for Ollama (e.g., 'llama2', 'mistral', 'codellama'). Defaults to 'llama2'.
-            ollama_base_url: Base URL for Ollama API. Defaults to 'http://localhost:11434'.
+            api_key: OpenAI API key. If None, uses template-based generation.
         """
         self.api_key = api_key or os.getenv('OPENAI_API_KEY')
-        self.provider = provider.lower()
-        self.ollama_model = ollama_model
-        self.ollama_base_url = ollama_base_url.rstrip('/')
         self.client = None
         self.use_llm = False
         
-        if self.provider == 'openai':
-            if OPENAI_AVAILABLE and self.api_key:
-                try:
-                    self.client = OpenAI(api_key=self.api_key)
-                    self.use_llm = True
-                except Exception:
-                    self.use_llm = False
-        elif self.provider == 'ollama':
-            if REQUESTS_AVAILABLE:
-                # Test Ollama connection
-                try:
-                    response = requests.get(f"{self.ollama_base_url}/api/tags", timeout=5)
-                    if response.status_code == 200:
-                        self.use_llm = True
-                except Exception:
-                    self.use_llm = False
+        if OPENAI_AVAILABLE and self.api_key:
+            try:
+                self.client = OpenAI(api_key=self.api_key)
+                self.use_llm = True
+            except Exception:
+                self.use_llm = False
     
     def generate_documentation(self, code: str, parse_result: Dict[str, Any]) -> Dict[str, str]:
         """Generate comprehensive documentation for the parsed code.
@@ -113,18 +91,15 @@ Parse information:
 
 Generate the complete code with professional docstrings added. Return ONLY the code with docstrings, no explanations."""
 
-        if self.provider == 'openai':
-            response = self.client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "You are a Python documentation expert specializing in PEP 257 compliant docstrings."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.3
-            )
-            return response.choices[0].message.content.strip()
-        elif self.provider == 'ollama':
-            return self._call_ollama(prompt, system_prompt="You are a Python documentation expert specializing in PEP 257 compliant docstrings.")
+        response = self.client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a Python documentation expert specializing in PEP 257 compliant docstrings."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3
+        )
+        return response.choices[0].message.content.strip()
     
     def _generate_readme_llm(self, code: str, parse_result: Dict[str, Any]) -> str:
         """Generate README.md using LLM."""
@@ -152,18 +127,15 @@ Create a README.md that includes:
 
 Format it as clean, professional Markdown. Be specific about what the code does based on the structure."""
 
-        if self.provider == 'openai':
-            response = self.client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "You are a technical writer specializing in software documentation."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.4
-            )
-            return response.choices[0].message.content.strip()
-        elif self.provider == 'ollama':
-            return self._call_ollama(prompt, system_prompt="You are a technical writer specializing in software documentation.")
+        response = self.client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a technical writer specializing in software documentation."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.4
+        )
+        return response.choices[0].message.content.strip()
     
     def _generate_architecture_llm(self, code: str, parse_result: Dict[str, Any]) -> str:
         """Generate ARCHITECTURE.md using LLM."""
@@ -196,53 +168,15 @@ Create an ARCHITECTURE.md that includes:
 
 Format as clean, professional Markdown with clear sections and subsections."""
 
-        if self.provider == 'openai':
-            response = self.client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": "You are a software architect documenting system design."},
-                    {"role": "user", "content": prompt}
-                ],
-                temperature=0.4
-            )
-            return response.choices[0].message.content.strip()
-        elif self.provider == 'ollama':
-            return self._call_ollama(prompt, system_prompt="You are a software architect documenting system design.")
-    
-    def _call_ollama(self, prompt: str, system_prompt: str = "") -> str:
-        """Call Ollama API to generate text.
-        
-        Args:
-            prompt: User prompt
-            system_prompt: System prompt (optional)
-            
-        Returns:
-            Generated text response
-        """
-        if not REQUESTS_AVAILABLE:
-            raise Exception("requests library is required for Ollama support")
-        
-        # Combine system and user prompts for Ollama
-        full_prompt = f"{system_prompt}\n\n{prompt}" if system_prompt else prompt
-        
-        try:
-            response = requests.post(
-                f"{self.ollama_base_url}/api/generate",
-                json={
-                    "model": self.ollama_model,
-                    "prompt": full_prompt,
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.3
-                    }
-                },
-                timeout=120  # Ollama can take longer
-            )
-            response.raise_for_status()
-            result = response.json()
-            return result.get('response', '').strip()
-        except requests.exceptions.RequestException as e:
-            raise Exception(f"Ollama API error: {str(e)}. Make sure Ollama is running at {self.ollama_base_url}")
+        response = self.client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a software architect documenting system design."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.4
+        )
+        return response.choices[0].message.content.strip()
     
     def _generate_with_templates(self, code: str, parse_result: Dict[str, Any]) -> Dict[str, str]:
         """Generate documentation using templates (fallback when LLM unavailable)."""

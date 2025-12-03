@@ -18,7 +18,7 @@ class Greeter:
 try:
     response = requests.post(
         'http://localhost:5001/api/generate-docs',
-        json={'code': test_code, 'api_key': None},
+        json={'code': test_code},
         headers={'Content-Type': 'application/json'}
     )
     

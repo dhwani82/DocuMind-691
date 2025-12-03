@@ -26,10 +26,17 @@ class DiagramGenerator:
         
         Shows categorized sections: Components, Services, Models, Helpers, Entry Points.
         Each class includes its docstring or inferred role as a subtitle.
+        For SQL: shows database schema with tables and foreign key relationships.
         
         Returns:
             Mermaid diagram code as string
         """
+        language = self.parse_result.get('language', 'python').lower()
+        
+        # Handle SQL language - show database schema
+        if language == 'sql':
+            return self._generate_sql_architecture_diagram()
+        
         lines = ["```mermaid", "graph TD"]
         lines.append("    direction TB")
         
@@ -555,12 +562,135 @@ class DiagramGenerator:
         lines.append("```")
         return "\n".join(lines)
     
+    def _generate_sql_architecture_diagram(self) -> str:
+        """Generate architecture diagram for SQL showing database schema with tables and relationships."""
+        tables = self.parse_result.get('tables', [])
+        relationships = self.parse_result.get('relationships', [])
+        
+        if not tables:
+            return "```mermaid\ngraph TD\n    A[\"📦 No Tables Found\"]\n    A --> B[\"Add CREATE TABLE statements to your SQL\"]\n    style A fill:#e8f4f8\n    style B fill:#fff4e6\n```"
+        
+        lines = ["```mermaid", "graph TD"]
+        lines.append("    direction TB")
+        
+        # Root node
+        root_id = "DATABASE"
+        lines.append(f"    {root_id}[\"🗄️ Database Schema\"]")
+        lines.append(f"    style {root_id} fill:#e8f5e9,stroke:#4caf50,stroke-width:3px")
+        
+        # Create table nodes with columns
+        table_nodes = {}
+        for table in tables:
+            table_name = table['name']
+            table_id = f"T_{table_name}".replace(' ', '_').replace('-', '_')
+            table_nodes[table_name] = table_id
+            
+            columns = table.get('columns', [])
+            
+            # Build table label with key columns
+            table_label = f"📊 {table_name}"
+            if columns:
+                # Show primary key columns first
+                pk_cols = [c['name'] for c in columns if c.get('is_primary_key')]
+                fk_cols = [c['name'] for c in columns if c.get('is_foreign_key')]
+                
+                if pk_cols:
+                    table_label += f"\\n🔑 PK: {', '.join(pk_cols[:3])}"
+                if fk_cols:
+                    table_label += f"\\n🔗 FK: {', '.join(fk_cols[:3])}"
+                table_label += f"\\n({len(columns)} columns)"
+            
+            lines.append(f"    {root_id} --> {table_id}[\"{table_label}\"]")
+            lines.append(f"    style {table_id} fill:#e3f2fd,stroke:#2196F3,stroke-width:2px")
+        
+        # Add foreign key relationships
+        for rel in relationships:
+            from_table = rel.get('from_table')
+            to_table = rel.get('to_table')
+            from_column = rel.get('from_column')
+            to_column = rel.get('to_column')
+            
+            if from_table in table_nodes and to_table in table_nodes:
+                from_id = table_nodes[from_table]
+                to_id = table_nodes[to_table]
+                
+                rel_label = f"{from_column} → {to_column}" if from_column and to_column else "FK"
+                lines.append(f"    {from_id} -->|\"{rel_label}\"| {to_id}")
+        
+        lines.append("```")
+        return "\n".join(lines)
+    
+    def _generate_sql_sequence_diagram(self) -> str:
+        """Generate sequence diagram for SQL showing data flow through foreign key relationships."""
+        tables = self.parse_result.get('tables', [])
+        relationships = self.parse_result.get('relationships', [])
+        
+        if not tables:
+            return "```mermaid\nsequenceDiagram\n    participant User as \"👤 User\"\n    User->>User: \"No tables found\"\n    Note over User: Add CREATE TABLE statements to see data flow\n```"
+        
+        if not relationships:
+            return "```mermaid\nsequenceDiagram\n    participant User as \"👤 User\"\n    participant DB as \"🗄️ Database\"\n    User->>DB: \"Tables exist\"\n    DB-->>User: \"No foreign key relationships\"\n    Note over User,DB: Add FOREIGN KEY constraints to see data flow\n```"
+        
+        lines = ["```mermaid", "sequenceDiagram"]
+        lines.append("    autonumber")
+        lines.append("    participant User as \"👤 User/Application\"")
+        
+        # Add tables as participants
+        table_participants = {}
+        for table in tables:
+            table_name = table['name']
+            table_id = table_name.replace(' ', '_')
+            table_participants[table_name] = table_id
+            lines.append(f"    participant {table_id} as \"📊 {table_name}\"")
+        
+        # Show data flow through relationships
+        lines.append("    User->>User: \"Database Operations\"")
+        
+        # Group relationships by from_table to show flow
+        rels_by_table = {}
+        for rel in relationships:
+            from_table = rel.get('from_table')
+            if from_table:
+                if from_table not in rels_by_table:
+                    rels_by_table[from_table] = []
+                rels_by_table[from_table].append(rel)
+        
+        # Show relationships as data flow
+        step = 1
+        for from_table, rels in list(rels_by_table.items())[:10]:  # Limit to 10 relationships
+            from_id = table_participants.get(from_table)
+            if from_id:
+                for rel in rels[:3]:  # Max 3 per table
+                    to_table = rel.get('to_table')
+                    to_id = table_participants.get(to_table)
+                    from_col = rel.get('from_column')
+                    to_col = rel.get('to_column')
+                    
+                    if to_id:
+                        rel_label = f"FK: {from_col} → {to_col}" if from_col and to_col else "Foreign Key"
+                        lines.append(f"    {from_id}->>{to_id}: \"{rel_label}\"")
+                        step += 1
+        
+        if len(relationships) > 10:
+            lines.append("    Note over User: \"... more relationships ...\"")
+        
+        lines.append("```")
+        return "\n".join(lines)
+    
     def generate_code_architecture_diagram(self) -> str:
         """Generate high-level architecture diagram in clean, readable Mermaid.js format.
+        
+        For SQL: shows detailed database schema with all columns and relationships.
         
         Returns:
             Mermaid diagram code as string in clean format matching user requirements
         """
+        language = self.parse_result.get('language', 'python').lower()
+        
+        # Handle SQL language - show detailed schema
+        if language == 'sql':
+            return self._generate_sql_detailed_architecture_diagram()
+        
         lines = ["```mermaid", "graph TD"]
         lines.append("")
         
@@ -685,9 +815,17 @@ class DiagramGenerator:
     def generate_sequence_diagram(self) -> str:
         """Generate Mermaid sequence diagram showing function call sequences.
         
+        For SQL: shows data flow through foreign key relationships.
+        
         Returns:
             Mermaid diagram code as string
         """
+        language = self.parse_result.get('language', 'python').lower()
+        
+        # Handle SQL language - show data flow through relationships
+        if language == 'sql':
+            return self._generate_sql_sequence_diagram()
+        
         if not self.function_calls and not self.method_calls:
             return "```mermaid\nsequenceDiagram\n    participant Main as \"📋 Main\"\n    Main->>Main: \"No function calls detected\"\n    Note over Main: Add function calls to see interactions\n```"
         
@@ -1083,6 +1221,22 @@ class DiagramGenerator:
         return "\n".join(lines)
     
     def generate_flowchart(self, function_name: str = None) -> str:
+        """Generate flowchart diagram.
+        
+        For JavaScript: generates flowchart for the first function.
+        For SQL: generates flow diagram showing foreign key relationships.
+        For Python: generates control flow diagram.
+        """
+        language = self.parse_result.get('language', 'python').lower()
+        
+        if language == 'sql':
+            return self._generate_sql_flow_diagram()
+        elif language == 'javascript':
+            return self._generate_javascript_flowchart()
+        else:
+            return self._generate_python_flowchart(function_name)
+    
+    def _generate_python_flowchart(self, function_name: str = None) -> str:
         """Generate Mermaid flowchart for a specific function or all functions.
         
         Args:
@@ -1116,6 +1270,97 @@ class DiagramGenerator:
         else:
             # No control flow found, show simple message
             return "```mermaid\nflowchart TD\n    A[Functions found] --> B[No control flow structures detected]\n    B --> C[Add if/else, loops, etc. to see flowcharts]\n```"
+    
+    def _generate_javascript_flowchart(self) -> str:
+        """Generate flowchart for JavaScript - uses the first function from parse_code_auto output."""
+        functions = self.parse_result.get('functions', [])
+        
+        if not functions:
+            return "```mermaid\nflowchart TD\n    A[No functions found] --> B[Add JavaScript functions to generate flowchart]\n```"
+        
+        # Get the FIRST function from parse_code_auto output
+        first_func = functions[0]
+        func_name = first_func.get('name', 'function')
+        params = first_func.get('parameters', [])
+        is_async = first_func.get('is_async', False)
+        
+        lines = ["```mermaid", "flowchart TD"]
+        
+        # Start node
+        start_id = "Start"
+        func_label = f"▶️ Start: {func_name}"
+        if is_async:
+            func_label += " (async)"
+        if params:
+            param_str = ', '.join(params[:3])
+            if len(params) > 3:
+                param_str += f", +{len(params) - 3}"
+            func_label += f"\\n({param_str})"
+        
+        lines.append(f"    {start_id}([\"{func_label}\"])")
+        lines.append(f"    style {start_id} fill:#e8f4f8,stroke:#2196F3,stroke-width:3px")
+        
+        # Process node (simplified - JavaScript parser doesn't extract control flow yet)
+        process_id = "Process"
+        lines.append(f"    {start_id} --> {process_id}[\"⚙️ Function Body\"]")
+        lines.append(f"    style {process_id} fill:#e8f5e9,stroke:#4caf50,stroke-width:2px")
+        
+        # Return/End node
+        end_id = "End"
+        lines.append(f"    {process_id} --> {end_id}([\"🏁 End: {func_name}\"])")
+        lines.append(f"    style {end_id} fill:#ffebee,stroke:#f44336,stroke-width:3px")
+        
+        lines.append("```")
+        return "\n".join(lines)
+    
+    def _generate_sql_flow_diagram(self) -> str:
+        """Generate flow diagram for SQL showing foreign key relationships."""
+        tables = self.parse_result.get('tables', [])
+        relationships = self.parse_result.get('relationships', [])
+        
+        if not tables:
+            return "```mermaid\nflowchart TD\n    A[No tables found] --> B[Add CREATE TABLE statements to generate flow diagram]\n```"
+        
+        if not relationships:
+            return "```mermaid\nflowchart TD\n    A[Tables found] --> B[No foreign key relationships detected]\n    B --> C[Add FOREIGN KEY constraints to see relationships]\n```"
+        
+        lines = ["```mermaid", "flowchart TD"]
+        lines.append("    direction TB")
+        
+        # Create nodes for each table
+        table_nodes = {}
+        for table in tables:
+            table_name = table['name']
+            table_id = f"T_{table_name}".replace(' ', '_')
+            table_nodes[table_name] = table_id
+            
+            # Build table label with column count
+            col_count = len(table.get('columns', []))
+            table_label = f"📊 {table_name}\\n({col_count} columns)"
+            
+            lines.append(f"    {table_id}[\"{table_label}\"]")
+            lines.append(f"    style {table_id} fill:#e3f2fd,stroke:#2196F3,stroke-width:2px")
+        
+        # Add relationships (foreign keys)
+        for rel in relationships:
+            from_table = rel.get('from_table')
+            to_table = rel.get('to_table')
+            from_column = rel.get('from_column')
+            to_column = rel.get('to_column')
+            
+            if from_table in table_nodes and to_table in table_nodes:
+                from_id = table_nodes[from_table]
+                to_id = table_nodes[to_table]
+                
+                # Create relationship label
+                rel_label = f"{from_column} → {to_column}"
+                if len(rel_label) > 30:
+                    rel_label = f"{from_column[:15]}... → {to_column[:15]}..."
+                
+                lines.append(f"    {from_id} -->|{rel_label}| {to_id}")
+        
+        lines.append("```")
+        return "\n".join(lines)
     
     def _generate_single_flowchart(self, func_info: Dict) -> str:
         """Generate flowchart for a single function."""
@@ -1247,10 +1492,19 @@ class DiagramGenerator:
         
         Shows the overall structure: classes with methods, top-level functions,
         nested functions, and their relationships.
+        For JavaScript: shows functions and classes.
+        For SQL: shows tables and relationships.
         
         Returns:
             Mermaid diagram code as string
         """
+        language = self.parse_result.get('language', 'python').lower()
+        
+        # Handle SQL language - show tables and relationships
+        if language == 'sql':
+            return self._generate_sql_structure_diagram()
+        
+        # Handle JavaScript and Python - show functions and classes
         if not self.classes and not self.functions:
             return "```mermaid\ngraph TD\n    A[\"📦 No Code Structure Found\"] --> B[\"Add classes or functions to your code\"]\n    style A fill:#e8f4f8\n    style B fill:#fff4e6\n```"
         
@@ -1259,7 +1513,8 @@ class DiagramGenerator:
         
         # Root node
         root_id = "ROOT"
-        lines.append(f"    {root_id}[\"📄 Code Structure\"]")
+        lang_label = "JavaScript" if language == 'javascript' else "Code"
+        lines.append(f"    {root_id}[\"📄 {lang_label} Structure\"]")
         lines.append(f"    style {root_id} fill:#e8f5e9,stroke:#4caf50,stroke-width:3px")
         
         # Separate top-level functions and nested functions
@@ -1387,6 +1642,191 @@ class DiagramGenerator:
                 var_name = var.get('name', 'variable')
                 lines.append(f"    {globals_id} --> {var_id}[\"{var_name}\"]")
                 lines.append(f"    style {var_id} fill:#b2dfdb,stroke:#00796b")
+        
+        lines.append("```")
+        return "\n".join(lines)
+    
+    def _generate_sql_structure_diagram(self) -> str:
+        """Generate structure diagram for SQL showing tables and relationships.
+        
+        Returns:
+            Mermaid diagram code as string
+        """
+        tables = self.parse_result.get('tables', [])
+        relationships = self.parse_result.get('relationships', [])
+        
+        if not tables:
+            return "```mermaid\ngraph TD\n    A[\"📦 No Tables Found\"] --> B[\"Add CREATE TABLE statements to your SQL\"]\n    style A fill:#e8f4f8\n    style B fill:#fff4e6\n```"
+        
+        lines = ["```mermaid", "graph TD"]
+        lines.append("    direction TB")
+        
+        # Root node
+        root_id = "ROOT"
+        lines.append(f"    {root_id}[\"📊 Database Structure\"]")
+        lines.append(f"    style {root_id} fill:#e8f5e9,stroke:#4caf50,stroke-width:3px")
+        
+        # Tables section
+        tables_id = "TABLES"
+        lines.append(f"    {root_id} --> {tables_id}[\"🗄️ Tables ({len(tables)})\"]")
+        lines.append(f"    style {tables_id} fill:#fff4e6,stroke:#ff9800,stroke-width:2px")
+        
+        # Add each table
+        for table in tables:
+            table_name = table['name']
+            table_id = f"TABLE_{table_name}".replace(' ', '_')
+            columns = table.get('columns', [])
+            
+            lines.append(f"    {tables_id} --> {table_id}[\"📋 {table_name}\"]")
+            lines.append(f"    style {table_id} fill:#e3f2fd,stroke:#2196F3,stroke-width:2px")
+            
+            # Add columns
+            if columns:
+                cols_id = f"{table_id}_COLS"
+                lines.append(f"    {table_id} --> {cols_id}[\"📝 Columns ({len(columns)})\"]")
+                lines.append(f"    style {cols_id} fill:#f3e5f5,stroke:#9c27b0")
+                
+                # Show columns with their types and constraints
+                for col in columns[:10]:  # Limit to 10 columns
+                    col_id = f"{table_id}_COL_{col['name']}".replace(' ', '_')
+                    col_label = col['name']
+                    
+                    # Add type
+                    if col.get('type'):
+                        col_label += f"\\n{col['type']}"
+                    
+                    # Add constraints
+                    constraints = []
+                    if col.get('is_primary_key'):
+                        constraints.append('PK')
+                    if col.get('is_foreign_key'):
+                        constraints.append('FK')
+                    if col.get('is_unique'):
+                        constraints.append('UNIQUE')
+                    if col.get('is_not_null'):
+                        constraints.append('NOT NULL')
+                    
+                    if constraints:
+                        col_label += f"\\n[{', '.join(constraints)}]"
+                    
+                    lines.append(f"    {cols_id} --> {col_id}[\"{col_label}\"]")
+                    lines.append(f"    style {col_id} fill:#fce4ec,stroke:#e91e63")
+                
+                if len(columns) > 10:
+                    more_cols_id = f"{table_id}_MORE_COLS"
+                    lines.append(f"    {cols_id} --> {more_cols_id}[\"... {len(columns) - 10} more columns\"]")
+                    lines.append(f"    style {more_cols_id} fill:#f5f5f5,stroke:#999")
+        
+        # Add relationships section
+        if relationships:
+            rels_id = "RELATIONSHIPS"
+            lines.append(f"    {root_id} --> {rels_id}[\"🔗 Relationships ({len(relationships)})\"]")
+            lines.append(f"    style {rels_id} fill:#e0f2f1,stroke:#009688,stroke-width:2px")
+            
+            for rel in relationships[:10]:  # Limit to 10 relationships
+                from_table = rel.get('from_table')
+                to_table = rel.get('to_table')
+                from_col = rel.get('from_column')
+                to_col = rel.get('to_column')
+                
+                if from_table and to_table:
+                    from_id = f"TABLE_{from_table}".replace(' ', '_')
+                    to_id = f"TABLE_{to_table}".replace(' ', '_')
+                    
+                    # Only add relationship if both tables exist
+                    if any(t['name'] == from_table for t in tables) and any(t['name'] == to_table for t in tables):
+                        rel_label = f"{from_col} → {to_col}" if from_col and to_col else "→"
+                        lines.append(f"    {from_id} -->|{rel_label}| {to_id}")
+            
+            if len(relationships) > 10:
+                more_rels_id = "MORE_RELS"
+                lines.append(f"    {rels_id} --> {more_rels_id}[\"... {len(relationships) - 10} more relationships\"]")
+                lines.append(f"    style {more_rels_id} fill:#f5f5f5,stroke:#999")
+        
+        lines.append("```")
+        return "\n".join(lines)
+    
+    def _generate_sql_detailed_architecture_diagram(self) -> str:
+        """Generate detailed architecture diagram for SQL showing all tables, columns, and relationships."""
+        tables = self.parse_result.get('tables', [])
+        relationships = self.parse_result.get('relationships', [])
+        
+        if not tables:
+            return "```mermaid\ngraph TD\n    A[\"📦 No Tables Found\"]\n    A --> B[\"Add CREATE TABLE statements to your SQL\"]\n    style A fill:#e8f4f8\n    style B fill:#fff4e6\n```"
+        
+        lines = ["```mermaid", "graph TD"]
+        lines.append("    direction TB")
+        
+        # Root node
+        root_id = "SCHEMA"
+        lines.append(f"    {root_id}[\"🗄️ Database Schema\"]")
+        lines.append(f"    style {root_id} fill:#e8f5e9,stroke:#4caf50,stroke-width:3px")
+        
+        # Create detailed table nodes
+        table_nodes = {}
+        for table in tables:
+            table_name = table['name']
+            table_id = f"T_{table_name}".replace(' ', '_').replace('-', '_')
+            table_nodes[table_name] = table_id
+            
+            columns = table.get('columns', [])
+            
+            # Build detailed table label with all columns
+            table_label = f"📊 {table_name}"
+            
+            # Add columns info
+            if columns:
+                pk_cols = [c['name'] for c in columns if c.get('is_primary_key')]
+                fk_cols = [c['name'] for c in columns if c.get('is_foreign_key')]
+                
+                table_label += "\\n━━━━━━━━━━━━━━━━"
+                
+                # Show primary keys
+                if pk_cols:
+                    table_label += f"\\n🔑 PK: {', '.join(pk_cols)}"
+                
+                # Show foreign keys
+                if fk_cols:
+                    table_label += f"\\n🔗 FK: {', '.join(fk_cols)}"
+                
+                table_label += "\\n━━━━━━━━━━━━━━━━"
+                
+                # Show all columns (limit to 8 for readability)
+                for col in columns[:8]:
+                    col_name = col['name']
+                    col_type = col.get('type', 'VARCHAR')
+                    constraints = []
+                    if col.get('is_primary_key'):
+                        constraints.append('PK')
+                    if col.get('is_foreign_key'):
+                        constraints.append('FK')
+                    if col.get('is_unique'):
+                        constraints.append('U')
+                    if col.get('is_not_null'):
+                        constraints.append('NN')
+                    
+                    constraint_str = f" [{', '.join(constraints)}]" if constraints else ""
+                    table_label += f"\\n• {col_name}: {col_type}{constraint_str}"
+                
+                if len(columns) > 8:
+                    table_label += f"\\n... {len(columns) - 8} more columns"
+            
+            lines.append(f"    {root_id} --> {table_id}[\"{table_label}\"]")
+            lines.append(f"    style {table_id} fill:#e3f2fd,stroke:#2196F3,stroke-width:2px")
+        
+        # Add foreign key relationships with labels
+        for rel in relationships:
+            from_table = rel.get('from_table')
+            to_table = rel.get('to_table')
+            from_column = rel.get('from_column')
+            to_column = rel.get('to_column')
+            
+            if from_table in table_nodes and to_table in table_nodes:
+                from_id = table_nodes[from_table]
+                to_id = table_nodes[to_table]
+                
+                rel_label = f"{from_column} → {to_column}" if from_column and to_column else "FK"
+                lines.append(f"    {from_id} -->|\"{rel_label}\"| {to_id}")
         
         lines.append("```")
         return "\n".join(lines)

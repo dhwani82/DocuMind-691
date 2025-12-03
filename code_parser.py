@@ -339,11 +339,13 @@ class CodeVisitor(ast.NodeVisitor):
                 var_info = {
                     'name': var_name,
                     'line': node.lineno,
-                    'type': self._infer_type(node.value)
+                    'type': self._infer_type(node.value) or 'unknown',
+                    'source': None  # Will be set based on context
                 }
                 
                 if self.current_class and not self.inside_method:
                     # Class variable (assigned at class level, not inside a method)
+                    var_info['source'] = 'class_variable'
                     if var_name not in [v['name'] for v in self.current_class['class_variables']]:
                         self.current_class['class_variables'].append(var_info)
                 elif not self.current_class and self.current_function is None and self.nesting_level == 0:
@@ -353,12 +355,14 @@ class CodeVisitor(ast.NodeVisitor):
                         exec_var_info = {
                             'name': var_name,
                             'line': node.lineno,
-                            'type': self._infer_type(node.value)
+                            'type': self._infer_type(node.value) or 'unknown',
+                            'source': 'execution_scope'
                         }
                         if var_name not in [v['name'] for v in self.parser.execution_scope_vars]:
                             self.parser.execution_scope_vars.append(exec_var_info)
                     else:
                         # Global variable - only at module level (not inside function or class or __main__)
+                        var_info['source'] = 'global'
                         if var_name not in [v['name'] for v in self.parser.global_vars]:
                             self.parser.global_vars.append(var_info)
                 elif self.current_function is not None:
@@ -366,7 +370,8 @@ class CodeVisitor(ast.NodeVisitor):
                     local_var_info = {
                         'name': var_name,
                         'line': node.lineno,
-                        'type': self._infer_type(node.value),
+                        'type': self._infer_type(node.value) or 'unknown',
+                        'source': 'local',
                         'function': self.current_function,
                         'is_method': self.inside_method
                     }
@@ -381,7 +386,8 @@ class CodeVisitor(ast.NodeVisitor):
                     var_info = {
                         'name': target.attr,
                         'line': node.lineno,
-                        'type': self._infer_type(node.value) if node.value else None
+                        'type': self._infer_type(node.value) if node.value else 'unknown',
+                        'source': 'instance_variable'
                     }
                     if self.current_class:
                         if var_info['name'] not in [v['name'] for v in self.current_class['instance_variables']]:
@@ -396,11 +402,13 @@ class CodeVisitor(ast.NodeVisitor):
             var_info = {
                 'name': var_name,
                 'line': node.lineno,
-                'type': self._get_annotation_name(node.annotation) if node.annotation else None
+                'type': self._get_annotation_name(node.annotation) if node.annotation else 'unknown',
+                'source': None  # Will be set based on context
             }
             
             if self.current_class and not self.inside_method:
                 # Class variable (annotated at class level)
+                var_info['source'] = 'class_variable'
                 if var_name not in [v['name'] for v in self.current_class['class_variables']]:
                     self.current_class['class_variables'].append(var_info)
             elif not self.current_class and self.current_function is None and self.nesting_level == 0:
@@ -410,12 +418,14 @@ class CodeVisitor(ast.NodeVisitor):
                     exec_var_info = {
                         'name': var_name,
                         'line': node.lineno,
-                        'type': self._get_annotation_name(node.annotation) if node.annotation else None
+                        'type': self._get_annotation_name(node.annotation) if node.annotation else 'unknown',
+                        'source': 'execution_scope'
                     }
                     if var_name not in [v['name'] for v in self.parser.execution_scope_vars]:
                         self.parser.execution_scope_vars.append(exec_var_info)
                 else:
                     # Global variable - only at module level (not inside function or class or __main__)
+                    var_info['source'] = 'global'
                     if var_name not in [v['name'] for v in self.parser.global_vars]:
                         self.parser.global_vars.append(var_info)
             elif self.current_function is not None:
@@ -423,7 +433,8 @@ class CodeVisitor(ast.NodeVisitor):
                 local_var_info = {
                     'name': var_name,
                     'line': node.lineno,
-                    'type': self._get_annotation_name(node.annotation) if node.annotation else None,
+                    'type': self._get_annotation_name(node.annotation) if node.annotation else 'unknown',
+                    'source': 'local',
                     'function': self.current_function,
                     'is_method': self.inside_method
                 }
@@ -437,7 +448,8 @@ class CodeVisitor(ast.NodeVisitor):
                 var_info = {
                     'name': node.target.attr,
                     'line': node.lineno,
-                    'type': self._get_annotation_name(node.annotation) if node.annotation else None
+                    'type': self._get_annotation_name(node.annotation) if node.annotation else 'unknown',
+                    'source': 'instance_variable'
                 }
                 if self.current_class:
                     if var_info['name'] not in [v['name'] for v in self.current_class['instance_variables']]:
