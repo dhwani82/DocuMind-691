@@ -2,6 +2,7 @@ let currentView = 'summary';
 let currentData = null;
 let currentCode = '';
 let currentDocumentation = null;
+let varSectionCounter = 0;
 
 function switchTab(tab) {
     document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.remove('active'));
@@ -385,6 +386,9 @@ function displaySummary(data) {
     const summaryView = document.getElementById('summary-view');
     const summary = data.summary;
     
+    // Reset variable section counter
+    varSectionCounter = 0;
+    
     summaryView.innerHTML = `
         <div class="stat-card">
             <h3>Total Functions</h3>
@@ -402,12 +406,11 @@ function displaySummary(data) {
             <div class="value">${summary.total_methods}</div>
         </div>
         <div class="stat-card">
-            <h3>Global Variables</h3>
-            <div class="value">${summary.global_variables}</div>
-        </div>
-        <div class="stat-card">
-            <h3>Local Variables</h3>
-            <div class="value">${summary.local_variables || 0}</div>
+            <h3>Variables</h3>
+            <div class="value">${(summary.global_variables || 0) + (summary.local_variables || 0) + (summary.execution_scope_variables || 0)}</div>
+            <div style="margin-top: 10px; font-size: 0.85rem; color: #666;">
+                ${summary.global_variables || 0} global, ${summary.local_variables || 0} local, ${summary.execution_scope_variables || 0} execution-scope
+            </div>
         </div>
         <div class="stat-card">
             <h3>Class Variables</h3>
@@ -433,8 +436,8 @@ function displaySummary(data) {
             const type = f.is_async ? 'async' : 'sync';
             const nested = f.is_nested ? 'nested' : 'top-level';
             return `
-                <div class="detail-item">
-                    <div class="name">${f.name}</div>
+                <div class="detail-item clickable-item" onclick="scrollToLine(${f.line}, 'function')" data-line="${f.line}" style="cursor: pointer;">
+                    <div class="name">${f.name} <span class="line-link-hint">(click to jump)</span></div>
                     <div class="meta">
                         <span>Line: ${f.line}</span>
                         <span>Type: ${type}</span>
@@ -450,9 +453,14 @@ function displaySummary(data) {
     
     if (data.classes && data.classes.length > 0) {
         summaryView.innerHTML += createDetailSection('Classes', data.classes, (c) => {
+            // Format class name with base classes: "ClassName(BaseClass)"
+            const classNameDisplay = c.bases.length > 0 
+                ? `${c.name}(${c.bases.join(', ')})` 
+                : c.name;
+            
             return `
-                <div class="detail-item">
-                    <div class="name">${c.name}</div>
+                <div class="detail-item clickable-item" onclick="scrollToLine(${c.line}, 'class')" data-line="${c.line}" style="cursor: pointer;">
+                    <div class="name">${classNameDisplay} <span class="line-link-hint">(click to jump)</span></div>
                     <div class="meta">
                         <span>Line: ${c.line}</span>
                         ${c.bases.length > 0 ? `<span>Bases: ${c.bases.join(', ')}</span>` : ''}
@@ -466,20 +474,123 @@ function displaySummary(data) {
         });
     }
     
+    // Create collapsible variable sections grouped by scope
+    summaryView.innerHTML += '<div class="variables-container">';
+    
+    // Global Variables Section
     if (data.global_variables && data.global_variables.length > 0) {
-        summaryView.innerHTML += createDetailSection('Global Variables', data.global_variables, (v) => {
-            return `
-                <div class="detail-item">
-                    <div class="name">${v.name}</div>
-                    <div class="meta">
-                        <span>Line: ${v.line}</span>
-                        ${v.type && v.type !== 'unknown' ? `<span>Type: ${v.type}</span>` : ''}
+        summaryView.innerHTML += createCollapsibleVariableSection(
+            'Global Variables',
+            data.global_variables,
+            (v) => {
+                return `
+                    <div class="detail-item clickable-item" onclick="scrollToLine(${v.line}, 'variable')" data-line="${v.line}" style="cursor: pointer;">
+                        <div class="name">${v.name} <span class="line-link-hint">(click to jump)</span></div>
+                        <div class="meta">
+                            <span>Line: ${v.line}</span>
+                            ${v.type && v.type !== 'unknown' ? `<span>Type: ${v.type}</span>` : ''}
+                        </div>
                     </div>
-                </div>
-            `;
+                `;
+            },
+            'global'
+        );
+    }
+    
+    // Execution-Scope Variables Section
+    if (data.execution_scope_variables && data.execution_scope_variables.length > 0) {
+        summaryView.innerHTML += createCollapsibleVariableSection(
+            'Execution-Scope Variables',
+            data.execution_scope_variables,
+            (v) => {
+                return `
+                    <div class="detail-item clickable-item" onclick="scrollToLine(${v.line}, 'variable')" data-line="${v.line}" style="cursor: pointer;">
+                        <div class="name">${v.name} <span class="line-link-hint">(click to jump)</span></div>
+                        <div class="meta">
+                            <span>Line: ${v.line}</span>
+                            <span>In: if __name__ == "__main__"</span>
+                            ${v.type && v.type !== 'unknown' ? `<span>Type: ${v.type}</span>` : ''}
+                        </div>
+                    </div>
+                `;
+            },
+            'execution-scope'
+        );
+    }
+    
+    // Collect all class variables
+    const allClassVars = [];
+    if (data.classes && data.classes.length > 0) {
+        data.classes.forEach(cls => {
+            if (cls.class_variables && cls.class_variables.length > 0) {
+                cls.class_variables.forEach(v => {
+                    allClassVars.push({
+                        ...v,
+                        className: cls.name
+                    });
+                });
+            }
         });
     }
     
+    // Class Variables Section
+    if (allClassVars.length > 0) {
+        summaryView.innerHTML += createCollapsibleVariableSection(
+            'Class Variables',
+            allClassVars,
+            (v) => {
+                return `
+                    <div class="detail-item clickable-item" onclick="scrollToLine(${v.line}, 'variable')" data-line="${v.line}" style="cursor: pointer;">
+                        <div class="name">${v.name} <span class="line-link-hint">(click to jump)</span></div>
+                        <div class="meta">
+                            <span>Line: ${v.line}</span>
+                            <span>In: ${v.className}</span>
+                            ${v.type && v.type !== 'unknown' ? `<span>Type: ${v.type}</span>` : ''}
+                        </div>
+                    </div>
+                `;
+            },
+            'class'
+        );
+    }
+    
+    // Collect all instance variables
+    const allInstanceVars = [];
+    if (data.classes && data.classes.length > 0) {
+        data.classes.forEach(cls => {
+            if (cls.instance_variables && cls.instance_variables.length > 0) {
+                cls.instance_variables.forEach(v => {
+                    allInstanceVars.push({
+                        ...v,
+                        className: cls.name
+                    });
+                });
+            }
+        });
+    }
+    
+    // Instance Variables Section
+    if (allInstanceVars.length > 0) {
+        summaryView.innerHTML += createCollapsibleVariableSection(
+            'Instance Variables',
+            allInstanceVars,
+            (v) => {
+                return `
+                    <div class="detail-item clickable-item" onclick="scrollToLine(${v.line}, 'variable')" data-line="${v.line}" style="cursor: pointer;">
+                        <div class="name">${v.name} <span class="line-link-hint">(click to jump)</span></div>
+                        <div class="meta">
+                            <span>Line: ${v.line}</span>
+                            <span>In: ${v.className}</span>
+                            ${v.type && v.type !== 'unknown' ? `<span>Type: ${v.type}</span>` : ''}
+                        </div>
+                    </div>
+                `;
+            },
+            'instance'
+        );
+    }
+    
+    // Local Variables Section (grouped by function)
     if (data.local_variables && data.local_variables.length > 0) {
         // Group local variables by function
         const varsByFunction = {};
@@ -491,23 +602,77 @@ function displaySummary(data) {
             varsByFunction[funcName].push(v);
         });
         
-        // Display grouped by function
+        // Create a flat list with function context
+        const allLocalVars = [];
         Object.keys(varsByFunction).forEach(funcName => {
-            const funcVars = varsByFunction[funcName];
-            const isMethod = funcVars[0].is_method;
-            const sectionTitle = isMethod ? `Local Variables in ${funcName}` : `Local Variables in ${funcName}()`;
-            
-            summaryView.innerHTML += createDetailSection(sectionTitle, funcVars, (v) => {
+            varsByFunction[funcName].forEach(v => {
+                allLocalVars.push({
+                    ...v,
+                    functionName: funcName
+                });
+            });
+        });
+        
+        summaryView.innerHTML += createCollapsibleVariableSection(
+            'Local Variables',
+            allLocalVars,
+            (v) => {
                 return `
-                    <div class="detail-item">
-                        <div class="name">${v.name}</div>
+                    <div class="detail-item clickable-item" onclick="scrollToLine(${v.line}, 'variable')" data-line="${v.line}" style="cursor: pointer;">
+                        <div class="name">${v.name} <span class="line-link-hint">(click to jump)</span></div>
                         <div class="meta">
                             <span>Line: ${v.line}</span>
+                            <span>In: ${v.functionName}</span>
                             ${v.type && v.type !== 'unknown' ? `<span>Type: ${v.type}</span>` : ''}
                         </div>
                     </div>
                 `;
-            });
+            },
+            'local'
+        );
+    }
+    
+    summaryView.innerHTML += '</div>';
+    
+    // Code Insights Section (Warnings)
+    if (data.warnings && data.warnings.length > 0) {
+        summaryView.innerHTML += createDetailSection('Code Insights', data.warnings, (w) => {
+            const severityColors = {
+                'warning': '#FF9800',
+                'error': '#F44336',
+                'info': '#2196F3'
+            };
+            const severityIcons = {
+                'warning': '⚠️',
+                'error': '❌',
+                'info': 'ℹ️'
+            };
+            const color = severityColors[w.severity] || '#666';
+            const icon = severityIcons[w.severity] || 'ℹ️';
+            
+            let details = '';
+            if (w.type === 'shadowed_variable' || w.type === 'global_override') {
+                details = `<span>Global defined at line ${w.global_line}</span>`;
+            } else if (w.type === 'duplicate_function' || w.type === 'duplicate_class') {
+                details = `<span>Previous definition at line ${w.previous_line}</span>`;
+            } else if (w.type === 'duplicate_variable') {
+                details = `<span>Previous definition at line ${w.previous_line}</span>`;
+            }
+            
+            return `
+                <div class="detail-item warning-item" onclick="${w.line ? `scrollToLine(${w.line}, 'variable')` : ''}" style="cursor: ${w.line ? 'pointer' : 'default'};">
+                    <div class="name">
+                        <span style="color: ${color}; margin-right: 8px;">${icon}</span>
+                        ${w.message}
+                    </div>
+                    <div class="meta">
+                        ${w.line ? `<span>Line: ${w.line}</span>` : ''}
+                        ${w.function ? `<span>In: ${w.function}</span>` : ''}
+                        ${details}
+                        <span style="color: ${color}; font-weight: 600;">${w.severity.toUpperCase()}</span>
+                    </div>
+                </div>
+            `;
         });
     }
     
@@ -552,6 +717,109 @@ function createDetailSection(title, items, itemRenderer) {
             ${items.map(itemRenderer).join('')}
         </div>
     `;
+}
+
+function createCollapsibleVariableSection(title, items, itemRenderer, scopeType) {
+    if (items.length === 0) return '';
+    
+    varSectionCounter++;
+    const sectionId = `var-section-${scopeType}-${varSectionCounter}`;
+    const contentId = `var-content-${scopeType}-${varSectionCounter}`;
+    
+    // Scope-specific colors
+    const scopeColors = {
+        'global': '#4CAF50',
+        'execution-scope': '#FF9800',
+        'class': '#9C27B0',
+        'instance': '#E91E63',
+        'local': '#2196F3'
+    };
+    
+    const color = scopeColors[scopeType] || '#666';
+    
+    return `
+        <div class="collapsible-var-section">
+            <button class="collapsible-var-header" onclick="toggleVariableSection('${contentId}', '${sectionId}')" id="${sectionId}">
+                <span class="var-section-title" style="color: ${color};">
+                    ${title}
+                </span>
+                <span class="var-section-count">(${items.length})</span>
+                <span class="var-section-toggle">▼</span>
+            </button>
+            <div class="collapsible-var-content" id="${contentId}" style="display: block;">
+                ${items.map(itemRenderer).join('')}
+            </div>
+        </div>
+    `;
+}
+
+function toggleVariableSection(contentId, headerId) {
+    const content = document.getElementById(contentId);
+    const header = document.getElementById(headerId);
+    const toggle = header.querySelector('.var-section-toggle');
+    
+    if (content.style.display === 'none') {
+        content.style.display = 'block';
+        toggle.textContent = '▼';
+    } else {
+        content.style.display = 'none';
+        toggle.textContent = '▶';
+    }
+}
+
+function scrollToLine(lineNumber, type) {
+    const textarea = document.getElementById('code-input');
+    if (!textarea || !currentCode) {
+        return;
+    }
+    
+    // Switch to paste tab if not already there
+    switchTab('paste');
+    
+    // Calculate character positions for the line
+    const lines = currentCode.split('\n');
+    let startChar = 0;
+    
+    // Sum characters up to the target line (lineNumber is 1-indexed)
+    for (let i = 0; i < lineNumber - 1 && i < lines.length; i++) {
+        startChar += lines[i].length + 1; // +1 for newline
+    }
+    
+    // Calculate end of line
+    const endChar = startChar + (lines[lineNumber - 1] ? lines[lineNumber - 1].length : 0);
+    
+    // Set selection to highlight the entire line
+    textarea.focus();
+    textarea.setSelectionRange(startChar, endChar);
+    
+    // Scroll to the line - center it in view
+    const lineHeight = parseFloat(getComputedStyle(textarea).lineHeight) || 25.2;
+    const scrollTop = (lineNumber - 1) * lineHeight - textarea.clientHeight / 2;
+    textarea.scrollTop = Math.max(0, scrollTop);
+    
+    // Add visual highlight effect
+    highlightLine(textarea, lineNumber, type);
+    
+    // Scroll the page to show the textarea if needed
+    setTimeout(() => {
+        textarea.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }, 100);
+}
+
+function highlightLine(textarea, lineNumber, type) {
+    // Remove any existing highlight
+    const existingHighlight = document.getElementById('line-highlight');
+    if (existingHighlight) {
+        existingHighlight.remove();
+    }
+    
+    // Add temporary class to textarea for visual feedback
+    textarea.classList.add('line-highlight-active');
+    
+    // Remove the class after animation
+    setTimeout(() => {
+        textarea.classList.remove('line-highlight-active');
+    }, 1500);
 }
 
 function displayJSON(data) {

@@ -118,6 +118,10 @@ header h1 {
     display: block;
 }
 
+#paste-tab {
+    position: relative;
+}
+
 #code-input {
     width: 100%;
     min-height: 400px;
@@ -132,6 +136,7 @@ header h1 {
     color: #e2e8f0;
     line-height: 1.8;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    position: relative;
 }
 
 #code-input:focus {
@@ -409,6 +414,134 @@ header h1 {
 
 .detail-item .meta span {
     margin-right: 15px;
+}
+
+/* Collapsible Variable Sections */
+.variables-container {
+    margin-top: 20px;
+}
+
+.collapsible-var-section {
+    margin-bottom: 15px;
+    border: 1px solid #334155;
+    border-radius: 8px;
+    overflow: hidden;
+    background: rgba(30, 41, 59, 0.5);
+}
+
+.collapsible-var-header {
+    width: 100%;
+    padding: 15px 20px;
+    background: rgba(15, 23, 42, 0.6);
+    border: none;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    transition: all 0.3s ease;
+    text-align: left;
+    color: #e2e8f0;
+}
+
+.collapsible-var-header:hover {
+    background: rgba(15, 23, 42, 0.8);
+}
+
+.var-section-title {
+    font-weight: 600;
+    font-size: 1.1rem;
+    flex: 1;
+}
+
+.var-section-count {
+    color: #94a3b8;
+    font-size: 0.9rem;
+    margin: 0 10px;
+}
+
+.var-section-toggle {
+    color: #60a5fa;
+    font-size: 0.9rem;
+    transition: transform 0.3s ease;
+    user-select: none;
+}
+
+.collapsible-var-content {
+    padding: 15px 20px;
+    background: rgba(30, 41, 59, 0.3);
+    border-top: 1px solid #334155;
+}
+
+.collapsible-var-content .detail-item {
+    margin-bottom: 10px;
+    padding: 10px;
+    background: rgba(15, 23, 42, 0.4);
+    border-radius: 6px;
+    border-left: 3px solid transparent;
+}
+
+.collapsible-var-content .detail-item:hover {
+    background: rgba(15, 23, 42, 0.6);
+    border-left-color: #3b82f6;
+}
+
+/* Warning items in Code Insights */
+.warning-item {
+    border-left-color: #FF9800 !important;
+}
+
+.warning-item:hover {
+    border-left-color: #FF9800 !important;
+    background: rgba(255, 152, 0, 0.1) !important;
+}
+
+/* Clickable items for line linking */
+.clickable-item {
+    transition: all 0.2s ease;
+}
+
+.clickable-item:hover {
+    transform: translateX(2px);
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.4) !important;
+}
+
+.line-link-hint {
+    font-size: 0.75rem;
+    color: #60a5fa;
+    opacity: 0.7;
+    font-weight: normal;
+    margin-left: 8px;
+}
+
+.clickable-item:hover .line-link-hint {
+    opacity: 1;
+}
+
+/* Line highlight for textarea */
+#code-input.line-highlight-active {
+    animation: textareaHighlight 1.5s ease-in-out;
+    box-shadow: 0 0 20px rgba(59, 130, 246, 0.6), 0 0 0 4px rgba(59, 130, 246, 0.3);
+}
+
+@keyframes textareaHighlight {
+    0% {
+        border-color: #3b82f6;
+        box-shadow: 0 0 20px rgba(59, 130, 246, 0.8), 0 0 0 4px rgba(59, 130, 246, 0.5);
+    }
+    50% {
+        border-color: #60a5fa;
+        box-shadow: 0 0 30px rgba(59, 130, 246, 0.6), 0 0 0 6px rgba(59, 130, 246, 0.3);
+    }
+    100% {
+        border-color: #334155;
+        box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    }
+}
+
+/* Selected text highlight */
+#code-input::selection {
+    background: rgba(59, 130, 246, 0.4);
+    color: #e2e8f0;
 }
 
 .json-view {

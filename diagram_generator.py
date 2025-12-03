@@ -1,5 +1,5 @@
 """Generate Mermaid diagrams from parsed code relationships."""
-from typing import Dict, List, Any, Set
+from typing import Dict, List, Any, Set, Tuple
 
 
 class DiagramGenerator:
@@ -21,97 +21,535 @@ class DiagramGenerator:
         self.control_flow = parse_result.get('control_flow', [])
     
     def generate_architecture_diagram(self) -> str:
-        """Generate Mermaid class diagram showing class relationships.
+        """Generate Mermaid diagram showing comprehensive code structure.
+        
+        Shows categorized sections: Components, Services, Models, Helpers, Entry Points.
+        Each class includes its docstring or inferred role as a subtitle.
         
         Returns:
             Mermaid diagram code as string
         """
-        if not self.classes:
-            return "```mermaid\ngraph TD\n    A[\"📦 No Classes Found\"] --> B[\"Add classes to your code\"]\n    style A fill:#e8f4f8\n    style B fill:#fff4e6\n```"
-        
-        lines = ["```mermaid", "classDiagram"]
+        lines = ["```mermaid", "graph TD"]
         lines.append("    direction TB")
         
-        # Add classes with better formatting
+        # Root node - the module/file
+        root_id = "MODULE"
+        lines.append(f"    {root_id}[\"📄 Module\"]")
+        lines.append(f"    style {root_id} fill:#e8f5e9,stroke:#4caf50,stroke-width:3px")
+        
+        # Categorize classes and functions
+        categorized = self._categorize_code_elements()
+        
+        # Add imports section
+        self._add_imports_section(lines, root_id)
+        
+        # Add categorized sections
+        self._add_categorized_sections(lines, root_id, categorized)
+        
+        # Add execution entry point
+        self._add_execution_entry_point(lines, root_id)
+        
+        # Add global variables
+        self._add_global_variables(lines, root_id)
+        
+        lines.append("```")
+        return "\n".join(lines)
+    
+    def _categorize_code_elements(self) -> Dict[str, Dict[str, List[Any]]]:
+        """Categorize classes and functions into Components, Services, Models, Helpers, Entry Points.
+        
+        Returns:
+            Dictionary with categories as keys, each containing 'classes' and 'functions' lists
+        """
+        categorized = {
+            'components': {'classes': [], 'functions': []},
+            'services': {'classes': [], 'functions': []},
+            'models': {'classes': [], 'functions': []},
+            'helpers': {'classes': [], 'functions': []},
+            'entry_points': {'classes': [], 'functions': []}
+        }
+        
+        # Categorize classes
+        for cls in self.classes:
+            category = self._categorize_class(cls)
+            categorized[category]['classes'].append(cls)
+        
+        # Categorize top-level functions
+        top_level_funcs = [f for f in self.functions if not f.get('is_nested', False)]
+        for func in top_level_funcs:
+            category = self._categorize_function(func)
+            categorized[category]['functions'].append(func)
+        
+        return categorized
+    
+    def _categorize_class(self, cls: Dict[str, Any]) -> str:
+        """Determine category for a class based on name, docstring, and patterns.
+        
+        Returns:
+            Category name: 'components', 'services', 'models', 'helpers', or 'entry_points'
+        """
+        name_lower = cls['name'].lower()
+        docstring = cls.get('docstring', '').lower() if cls.get('docstring') else ''
+        combined = f"{name_lower} {docstring}"
+        
+        # Entry Points: Main, App, Application, Server, Runner (check name first for priority)
+        entry_point_keywords = ['main', 'app', 'application', 'server', 'runner', 'entry', 'start', 'launch']
+        if any(kw in name_lower for kw in entry_point_keywords):
+            return 'entry_points'
+        
+        # Services: Service, Manager, Handler, Controller, API, Client (check name first)
+        service_keywords = ['service', 'manager', 'handler', 'controller', 'api', 'client', 'processor', 'executor']
+        if any(kw in name_lower for kw in service_keywords):
+            return 'services'
+        # Also check in combined for docstring mentions
+        if any(kw in docstring for kw in service_keywords):
+            return 'services'
+        
+        # Components: Component, Widget, View, UI, Panel, Frame (check name first)
+        component_keywords = ['component', 'widget', 'view', 'ui', 'panel', 'frame', 'window', 'dialog']
+        if any(kw in name_lower for kw in component_keywords):
+            return 'components'
+        if any(kw in docstring for kw in component_keywords):
+            return 'components'
+        
+        # Models: Model, Entity, Data, Schema, Record, DTO (check name first)
+        model_keywords = ['model', 'entity', 'schema', 'record', 'dto', 'dataclass', 'table']
+        if any(kw in name_lower for kw in model_keywords):
+            return 'models'
+        # "data" is too generic, only check if it's in name, not docstring
+        if 'data' in name_lower and 'model' in name_lower:
+            return 'models'
+        if any(kw in docstring for kw in ['model', 'entity', 'schema', 'record']):
+            return 'models'
+        
+        # Default to components if it has methods (likely a component)
+        if cls.get('methods'):
+            return 'components'
+        
+        # Default to models if it has class variables (likely a data model)
+        if cls.get('class_variables') or cls.get('instance_variables'):
+            return 'models'
+        
+        # Default fallback
+        return 'components'
+    
+    def _categorize_function(self, func: Dict[str, Any]) -> str:
+        """Determine category for a function based on name, docstring, and patterns.
+        
+        Returns:
+            Category name: 'components', 'services', 'models', 'helpers', or 'entry_points'
+        """
+        name_lower = func['name'].lower()
+        docstring = func.get('docstring', '').lower() if func.get('docstring') else ''
+        combined = f"{name_lower} {docstring}"
+        
+        # Entry Points: main, run, start, launch, execute (check name first)
+        entry_point_keywords = ['main', 'run', 'start', 'launch', 'execute', 'entry']
+        if any(kw in name_lower for kw in entry_point_keywords):
+            return 'entry_points'
+        
+        # Components: render, display, show, draw, paint (check name first)
+        component_keywords = ['render', 'display', 'show', 'draw', 'paint']
+        if any(kw in name_lower for kw in component_keywords):
+            return 'components'
+        if any(kw in docstring for kw in ['render', 'display', 'ui', 'view']):
+            return 'components'
+        
+        # Services: process, handle, manage, serve, api (check name first)
+        service_keywords = ['process', 'handle', 'manage', 'serve', 'api', 'request', 'response']
+        if any(kw in name_lower for kw in service_keywords):
+            return 'services'
+        if any(kw in docstring for kw in service_keywords):
+            return 'services'
+        
+        # Models: create, build, parse, serialize (check name first, but be careful)
+        # Only categorize as model if it's clearly model-related
+        model_keywords = ['to_dict', 'from_dict', 'serialize', 'deserialize']
+        if any(kw in name_lower for kw in model_keywords):
+            return 'models'
+        if any(kw in docstring for kw in ['model', 'entity', 'serialize']):
+            return 'models'
+        
+        # Helper keywords: format, validate, convert, transform, utility, helper
+        helper_keywords = ['format', 'validate', 'convert', 'transform', 'utility', 'helper', 'parse']
+        if any(kw in name_lower for kw in helper_keywords):
+            return 'helpers'
+        if any(kw in docstring for kw in ['helper', 'utility', 'format', 'validate']):
+            return 'helpers'
+        
+        # Default to helpers (utility functions)
+        return 'helpers'
+    
+    def _get_class_role(self, cls: Dict[str, Any]) -> str:
+        """Get class role from docstring or infer from name/patterns.
+        
+        Returns:
+            Short description of class role (max 60 chars)
+        """
+        # Try docstring first
+        if cls.get('docstring'):
+            docstring = cls['docstring'].strip()
+            # Get first sentence or first line
+            first_line = docstring.split('.')[0].split('\n')[0].strip()
+            if len(first_line) > 60:
+                first_line = first_line[:57] + "..."
+            if first_line:
+                return first_line
+        
+        # Infer from name and patterns
+        name = cls['name']
+        name_lower = name.lower()
+        
+        # Common patterns
+        if 'model' in name_lower or 'entity' in name_lower:
+            return "Data model representing structured information"
+        elif 'service' in name_lower or 'manager' in name_lower:
+            return "Service layer for business logic"
+        elif 'controller' in name_lower or 'handler' in name_lower:
+            return "Controller handling requests and responses"
+        elif 'component' in name_lower or 'widget' in name_lower:
+            return "UI component for user interaction"
+        elif 'client' in name_lower or 'api' in name_lower:
+            return "API client for external communication"
+        elif 'view' in name_lower:
+            return "View component for displaying data"
+        elif 'factory' in name_lower:
+            return "Factory for creating instances"
+        elif 'base' in name_lower or 'abstract' in name_lower:
+            return "Base class providing common functionality"
+        else:
+            # Generic description based on methods
+            method_count = len(cls.get('methods', []))
+            if method_count > 0:
+                return f"Class with {method_count} method{'s' if method_count > 1 else ''}"
+            return "Class definition"
+    
+    def _add_imports_section(self, lines: List[str], root_id: str):
+        """Add imports section to diagram."""
+        import_modules = set()
+        for imp in self.imports:
+            if imp['type'] == 'import':
+                module = imp['module'].split('.')[0]
+                import_modules.add(module)
+            elif imp['type'] == 'from_import' and imp['module']:
+                module = imp['module'].split('.')[0]
+                import_modules.add(module)
+        
+        if import_modules:
+            imports_id = "IMPORTS"
+            lines.append(f"    {root_id} --> {imports_id}[\"📚 Imports ({len(import_modules)})\"]")
+            lines.append(f"    style {imports_id} fill:#fff4e6,stroke:#ff9800,stroke-width:2px")
+            
+            for module in sorted(list(import_modules))[:6]:
+                module_id = f"IMP_{module}".replace('.', '_').replace('-', '_')
+                lines.append(f"    {imports_id} --> {module_id}[\"📦 {module}\"]")
+                lines.append(f"    style {module_id} fill:#ffe0b2,stroke:#f57c00")
+            
+            if len(import_modules) > 6:
+                more_imports_id = "MORE_IMPORTS"
+                lines.append(f"    {imports_id} --> {more_imports_id}[\"... {len(import_modules) - 6} more\"]")
+                lines.append(f"    style {more_imports_id} fill:#f5f5f5,stroke:#999")
+    
+    def _add_categorized_sections(self, lines: List[str], root_id: str, categorized: Dict[str, Dict[str, List[Any]]]):
+        """Add categorized sections (Components, Services, Models, Helpers, Entry Points) to diagram."""
+        section_configs = [
+            ('components', '🏗️ Components', '#e1f5fe', '#0288d1', '#b3e5fc', '#0277bd'),
+            ('services', '⚙️ Services', '#f3e5f5', '#9c27b0', '#e1bee7', '#7b1fa2'),
+            ('models', '📊 Models', '#fff3e0', '#f57c00', '#ffe0b2', '#e65100'),
+            ('helpers', '🛠️ Helpers', '#e8f5e9', '#388e3c', '#c8e6c9', '#2e7d32'),
+            ('entry_points', '🚀 Entry Points', '#fce4ec', '#c2185b', '#f8bbd0', '#880e4f')
+        ]
+        
+        for section_key, section_label, section_fill, section_stroke, item_fill, item_stroke in section_configs:
+            section_data = categorized[section_key]
+            classes = section_data['classes']
+            functions = section_data['functions']
+            
+            if not classes and not functions:
+                continue
+            
+            total_count = len(classes) + len(functions)
+            section_id = section_key.upper().replace('_', '_')
+            lines.append(f"    {root_id} --> {section_id}[\"{section_label} ({total_count})\"]")
+            lines.append(f"    style {section_id} fill:{section_fill},stroke:{section_stroke},stroke-width:2px")
+            
+            # Add classes
+            for cls in classes[:8]:
+                class_id = f"{section_key.upper()}_CLASS_{cls['name']}".replace(' ', '_')
+                class_label = cls['name']
+                
+                # Add base classes if any
+                if cls.get('bases'):
+                    bases_str = ', '.join(cls['bases'][:2])
+                    if len(cls['bases']) > 2:
+                        bases_str += f", +{len(cls['bases']) - 2}"
+                    class_label = f"{class_label}({bases_str})"
+                
+                # Add role/subtitle from docstring
+                role = self._get_class_role(cls)
+                class_label += f"\\n<i>{role}</i>"
+                
+                lines.append(f"    {section_id} --> {class_id}[\"{class_label}\"]")
+                lines.append(f"    style {class_id} fill:{item_fill},stroke:{item_stroke}")
+                
+                # Add inheritance relationships
+                if cls.get('bases'):
+                    for base in cls['bases']:
+                        base_name = base.split('.')[-1]
+                        # Find base class in categorized data
+                        base_class = None
+                        for cat_data in categorized.values():
+                            for c in cat_data['classes']:
+                                if c['name'] == base_name:
+                                    base_class = c
+                                    break
+                            if base_class:
+                                break
+                        
+                        if base_class:
+                            # Find which section the base is in
+                            base_section = None
+                            for sec_key, sec_data in categorized.items():
+                                if base_class in sec_data['classes']:
+                                    base_section = sec_key
+                                    break
+                            
+                            if base_section:
+                                base_id = f"{base_section.upper()}_CLASS_{base_name}".replace(' ', '_')
+                                lines.append(f"    {base_id} -.->|inherits| {class_id}")
+            
+            # Add functions
+            for func in functions[:6]:
+                func_id = f"{section_key.upper()}_FUNC_{func['name']}".replace(' ', '_')
+                func_label = func['name']
+                if func.get('is_async'):
+                    func_label = f"🔁 {func_label}"
+                func_label += "()"
+                
+                # Add docstring if available
+                if func.get('docstring'):
+                    docstring = func['docstring'].strip()
+                    if len(docstring) > 50:
+                        docstring = docstring[:47] + "..."
+                    func_label += f"\\n<i>{docstring}</i>"
+                
+                lines.append(f"    {section_id} --> {func_id}[\"{func_label}\"]")
+                lines.append(f"    style {func_id} fill:{item_fill},stroke:{item_stroke}")
+            
+            # Add "more" indicator if needed
+            remaining = (len(classes) - 8) + (len(functions) - 6)
+            if remaining > 0:
+                more_id = f"MORE_{section_key.upper()}"
+                lines.append(f"    {section_id} --> {more_id}[\"... {remaining} more\"]")
+                lines.append(f"    style {more_id} fill:#f5f5f5,stroke:#999")
+    
+    def _add_execution_entry_point(self, lines: List[str], root_id: str):
+        """Add execution entry point section."""
+        execution_scope_vars = self.parse_result.get('execution_scope_variables', [])
+        if execution_scope_vars:
+            exec_id = "EXECUTION"
+            lines.append(f"    {root_id} --> {exec_id}[\"▶️ Execution Scope\"]")
+            lines.append(f"    style {exec_id} fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px")
+            lines.append(f"    {exec_id} --> EXEC_VARS[\"Variables: {len(execution_scope_vars)}\"]")
+            lines.append(f"    style EXEC_VARS fill:#e1bee7,stroke:#7b1fa2")
+    
+    def _add_global_variables(self, lines: List[str], root_id: str):
+        """Add global variables section."""
+        global_vars = self.parse_result.get('global_variables', [])
+        if global_vars:
+            globals_id = "GLOBALS"
+            lines.append(f"    {root_id} --> {globals_id}[\"🌍 Global Variables ({len(global_vars)})\"]")
+            lines.append(f"    style {globals_id} fill:#e0f2f1,stroke:#009688")
+            
+            for var in global_vars[:4]:
+                var_id = f"GLOBAL_{var['name']}".replace(' ', '_')
+                lines.append(f"    {globals_id} --> {var_id}[\"{var['name']}\"]")
+                lines.append(f"    style {var_id} fill:#b2dfdb,stroke:#00796b")
+    
+    def _generate_functional_architecture(self, lines: List[str], root_id: str) -> str:
+        """Generate architecture diagram for code without classes."""
+        # Group imports by module
+        import_modules = set()
+        import_details = []
+        for imp in self.imports:
+            if imp['type'] == 'import':
+                module = imp['module'].split('.')[0]
+                import_modules.add(module)
+                import_details.append({'module': module, 'name': None, 'type': 'import'})
+            elif imp['type'] == 'from_import' and imp['module']:
+                module = imp['module'].split('.')[0]
+                import_modules.add(module)
+                import_details.append({'module': module, 'name': imp.get('name'), 'type': 'from_import'})
+        
+        # Add imports section
+        if import_modules:
+            imports_id = "IMPORTS"
+            lines.append(f"    {root_id} --> {imports_id}[\"📚 Imports ({len(import_modules)})\"]")
+            lines.append(f"    style {imports_id} fill:#fff4e6,stroke:#ff9800,stroke-width:2px")
+            
+            # Show top imports
+            for module in sorted(list(import_modules))[:8]:
+                module_id = f"IMP_{module}".replace('.', '_').replace('-', '_')
+                lines.append(f"    {imports_id} --> {module_id}[\"📦 {module}\"]")
+                lines.append(f"    style {module_id} fill:#ffe0b2,stroke:#f57c00")
+            
+            if len(import_modules) > 8:
+                more_imports_id = "MORE_IMPORTS"
+                lines.append(f"    {imports_id} --> {more_imports_id}[\"... {len(import_modules) - 8} more\"]")
+                lines.append(f"    style {more_imports_id} fill:#f5f5f5,stroke:#999")
+        
+        # Add top-level functions
+        top_level_funcs = [f for f in self.functions if not f.get('is_nested', False)]
+        if top_level_funcs:
+            funcs_id = "FUNCTIONS"
+            lines.append(f"    {root_id} --> {funcs_id}[\"⚙️ Functions ({len(top_level_funcs)})\"]")
+            lines.append(f"    style {funcs_id} fill:#e3f2fd,stroke:#2196F3,stroke-width:2px")
+            
+            # Show functions
+            for func in top_level_funcs[:10]:
+                func_id = f"FUNC_{func['name']}".replace(' ', '_')
+                func_label = func['name']
+                if func.get('is_async'):
+                    func_label = f"🔁 {func_label}"
+                func_label += "()"
+                
+                # Add parameter count
+                params = func.get('parameters', [])
+                param_count = len([p for p in params if p != 'self'])
+                if param_count > 0:
+                    func_label += f"\\n({param_count} params)"
+                
+                lines.append(f"    {funcs_id} --> {func_id}[\"{func_label}\"]")
+                lines.append(f"    style {func_id} fill:#bbdefb,stroke:#1976d2")
+            
+            if len(top_level_funcs) > 10:
+                more_funcs_id = "MORE_FUNCS"
+                lines.append(f"    {funcs_id} --> {more_funcs_id}[\"... {len(top_level_funcs) - 10} more\"]")
+                lines.append(f"    style {more_funcs_id} fill:#f5f5f5,stroke:#999")
+        
+        # Add execution entry point (if __name__ == "__main__")
+        execution_scope_vars = self.parse_result.get('execution_scope_variables', [])
+        if execution_scope_vars:
+            exec_id = "EXECUTION"
+            lines.append(f"    {root_id} --> {exec_id}[\"▶️ Execution Entry Point\"]")
+            lines.append(f"    style {exec_id} fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px")
+            lines.append(f"    {exec_id} --> EXEC_VARS[\"Variables: {len(execution_scope_vars)}\"]")
+            lines.append(f"    style EXEC_VARS fill:#e1bee7,stroke:#7b1fa2")
+        
+        # Add global variables if any
+        global_vars = self.parse_result.get('global_variables', [])
+        if global_vars:
+            globals_id = "GLOBALS"
+            lines.append(f"    {root_id} --> {globals_id}[\"🌍 Global Variables ({len(global_vars)})\"]")
+            lines.append(f"    style {globals_id} fill:#e0f2f1,stroke:#009688")
+            
+            for var in global_vars[:5]:
+                var_id = f"GLOBAL_{var['name']}".replace(' ', '_')
+                lines.append(f"    {globals_id} --> {var_id}[\"{var['name']}\"]")
+                lines.append(f"    style {var_id} fill:#b2dfdb,stroke:#00796b")
+        
+        lines.append("```")
+        return "\n".join(lines)
+    
+    def _generate_class_based_architecture(self, lines: List[str], root_id: str) -> str:
+        """Generate architecture diagram for code with classes, including context."""
+        # Use graph TD to show comprehensive structure with classes
+        lines = ["```mermaid", "graph TD"]
+        lines.append("    direction TB")
+        
+        # Re-add root node
+        lines.append(f"    {root_id}[\"📄 Module\"]")
+        lines.append(f"    style {root_id} fill:#e8f5e9,stroke:#4caf50,stroke-width:3px")
+        
+        # Add imports section
+        import_modules = set()
+        for imp in self.imports:
+            if imp['type'] == 'import':
+                module = imp['module'].split('.')[0]
+                import_modules.add(module)
+            elif imp['type'] == 'from_import' and imp['module']:
+                module = imp['module'].split('.')[0]
+                import_modules.add(module)
+        
+        if import_modules:
+            imports_id = "IMPORTS"
+            lines.append(f"    {root_id} --> {imports_id}[\"📚 Imports ({len(import_modules)})\"]")
+            lines.append(f"    style {imports_id} fill:#fff4e6,stroke:#ff9800,stroke-width:2px")
+            
+            for module in sorted(list(import_modules))[:5]:
+                module_id = f"IMP_{module}".replace('.', '_').replace('-', '_')
+                lines.append(f"    {imports_id} --> {module_id}[\"📦 {module}\"]")
+                lines.append(f"    style {module_id} fill:#ffe0b2,stroke:#f57c00")
+        
+        # Add classes section (prominent)
+        classes_id = "CLASSES"
+        lines.append(f"    {root_id} --> {classes_id}[\"🏛️ Classes ({len(self.classes)})\"]")
+        lines.append(f"    style {classes_id} fill:#e1f5fe,stroke:#0288d1,stroke-width:3px")
+        
         for cls in self.classes:
             class_name = cls['name']
-            lines.append(f"    class {class_name} {{")
+            class_id = f"CLASS_{class_name}".replace(' ', '_')
             
-            # Add class variables (limit to 3 for readability)
-            class_vars = cls.get('class_variables', [])[:3]
-            if class_vars:
-                for var in class_vars:
-                    var_name = var['name']
-                    lines.append(f"        +{var_name}")
-                if len(cls.get('class_variables', [])) > 3:
-                    lines.append(f"        +... ({len(cls.get('class_variables', [])) - 3} more)")
+            # Format class label with base classes
+            class_label = class_name
+            if cls.get('bases'):
+                bases_str = ', '.join(cls['bases'][:2])
+                if len(cls['bases']) > 2:
+                    bases_str += f", +{len(cls['bases']) - 2}"
+                class_label = f"{class_name}({bases_str})"
             
-            # Add methods (limit to 4 for readability)
-            methods = cls.get('methods', [])[:4]
-            if methods:
-                for method in methods:
-                    method_name = method['name']
-                    method_type = "🔁 " if method.get('is_async') else ""
-                    lines.append(f"        {method_type}{method_name}()")
-                if len(cls.get('methods', [])) > 4:
-                    lines.append(f"        +... ({len(cls.get('methods', [])) - 4} more methods)")
+            # Add method count
+            method_count = len(cls.get('methods', []))
+            if method_count > 0:
+                class_label += f"\\n{method_count} method{'s' if method_count > 1 else ''}"
             
-            lines.append("    }")
-        
-        # Add inheritance relationships with clear labels
-        inheritance_count = 0
-        for cls in self.classes:
+            lines.append(f"    {classes_id} --> {class_id}[\"{class_label}\"]")
+            lines.append(f"    style {class_id} fill:#b3e5fc,stroke:#0277bd")
+            
+            # Add inheritance relationships
             if cls.get('bases'):
                 for base in cls['bases']:
                     base_name = base.split('.')[-1]
                     if any(c['name'] == base_name for c in self.classes):
-                        lines.append(f"    {base_name} <|-- {cls['name']} : inherits")
-                        inheritance_count += 1
+                        base_id = f"CLASS_{base_name}".replace(' ', '_')
+                        lines.append(f"    {base_id} -.->|inherits| {class_id}")
         
-        # Add instantiation relationships (who creates instances of which class)
-        instantiation_map = {}
-        for inst in self.class_instantiations:
-            caller = inst['caller']
-            class_name = inst['class_name']
-            if class_name not in instantiation_map:
-                instantiation_map[class_name] = set()
-            instantiation_map[class_name].add(caller)
-        
-        for class_name, callers in instantiation_map.items():
-            for caller in callers:
-                if '.' in caller:
-                    caller_class = caller.split('.')[0]
-                    if any(c['name'] == caller_class for c in self.classes):
-                        lines.append(f"    {caller_class} ..> {class_name} : \"creates\"")
-        
-        # Add method call relationships between classes (simplified)
-        method_call_map = {}
-        for method_call in self.method_calls:
-            caller = method_call['caller']
-            target_class = method_call['class_name']
-            method = method_call['method']
+        # Add top-level functions (non-nested)
+        top_level_funcs = [f for f in self.functions if not f.get('is_nested', False)]
+        if top_level_funcs:
+            funcs_id = "FUNCTIONS"
+            lines.append(f"    {root_id} --> {funcs_id}[\"⚙️ Functions ({len(top_level_funcs)})\"]")
+            lines.append(f"    style {funcs_id} fill:#e3f2fd,stroke:#2196F3,stroke-width:2px")
             
-            if '.' in caller:
-                caller_class = caller.split('.')[0]
-                if caller_class != target_class:
-                    key = (caller_class, target_class)
-                    if key not in method_call_map:
-                        method_call_map[key] = set()
-                    method_call_map[key].add(method)
+            for func in top_level_funcs[:8]:
+                func_id = f"FUNC_{func['name']}".replace(' ', '_')
+                func_label = func['name']
+                if func.get('is_async'):
+                    func_label = f"🔁 {func_label}"
+                func_label += "()"
+                lines.append(f"    {funcs_id} --> {func_id}[\"{func_label}\"]")
+                lines.append(f"    style {func_id} fill:#bbdefb,stroke:#1976d2")
         
-        # Limit relationships to avoid clutter
-        relationship_count = 0
-        for (caller_class, target_class), methods in method_call_map.items():
-            if relationship_count >= 5:  # Limit to 5 relationships
-                break
-            if any(c['name'] == caller_class for c in self.classes) and \
-               any(c['name'] == target_class for c in self.classes):
-                methods_list = list(methods)[:2]  # Limit to 2 methods
-                if len(methods_list) == 1:
-                    lines.append(f"    {caller_class} --> {target_class} : \"calls {methods_list[0]}()\"")
-                else:
-                    lines.append(f"    {caller_class} --> {target_class} : \"calls methods\"")
-                relationship_count += 1
+        # Add execution entry point
+        execution_scope_vars = self.parse_result.get('execution_scope_variables', [])
+        if execution_scope_vars:
+            exec_id = "EXECUTION"
+            lines.append(f"    {root_id} --> {exec_id}[\"▶️ Execution Entry Point\"]")
+            lines.append(f"    style {exec_id} fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px")
+            lines.append(f"    {exec_id} --> EXEC_VARS[\"Variables: {len(execution_scope_vars)}\"]")
+            lines.append(f"    style EXEC_VARS fill:#e1bee7,stroke:#7b1fa2")
+        
+        # Add global variables
+        global_vars = self.parse_result.get('global_variables', [])
+        if global_vars:
+            globals_id = "GLOBALS"
+            lines.append(f"    {root_id} --> {globals_id}[\"🌍 Global Variables ({len(global_vars)})\"]")
+            lines.append(f"    style {globals_id} fill:#e0f2f1,stroke:#009688")
+            
+            for var in global_vars[:4]:
+                var_id = f"GLOBAL_{var['name']}".replace(' ', '_')
+                lines.append(f"    {globals_id} --> {var_id}[\"{var['name']}\"]")
+                lines.append(f"    style {var_id} fill:#b2dfdb,stroke:#00796b")
         
         lines.append("```")
         return "\n".join(lines)
@@ -715,14 +1153,14 @@ class DiagramGenerator:
             
             for cls in self.classes:
                 class_id = f"CLASS_{cls['name']}".replace(' ', '_')
-                class_label = f"📦 {cls['name']}"
-                
-                # Add inheritance info
+                # Format class name with base classes: "ClassName(BaseClass)"
                 if cls.get('bases'):
                     bases_str = ', '.join(cls['bases'][:2])
                     if len(cls['bases']) > 2:
-                        bases_str += f" +{len(cls['bases']) - 2}"
-                    class_label += f"\\n(extends {bases_str})"
+                        bases_str += f", +{len(cls['bases']) - 2}"
+                    class_label = f"📦 {cls['name']}({bases_str})"
+                else:
+                    class_label = f"📦 {cls['name']}"
                 
                 lines.append(f"    {classes_id} --> {class_id}[\"{class_label}\"]")
                 lines.append(f"    style {class_id} fill:#e3f2fd,stroke:#2196F3")

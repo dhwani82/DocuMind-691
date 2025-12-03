@@ -8,12 +8,16 @@ class CodeParser:
         self.classes = []
         self.global_vars = []
         self.local_vars = []  # Track local variables in functions/methods
+        self.execution_scope_vars = []  # Track variables in if __name__ == "__main__" blocks
         self.imports = []
         self.decorators = []
         self.function_calls = []  # Track function calls: (caller, callee, line)
         self.method_calls = []  # Track method calls: (caller_class, method, line)
         self.class_instantiations = []  # Track class instantiations: (caller, class_name, line)
         self.control_flow = []  # Track control flow structures for flowcharts
+        self.warnings = []  # Track code warnings (shadowed variables, duplicates, etc.)
+        self.global_declarations = {}  # Track global declarations per function
+        self.nonlocal_declarations = {}  # Track nonlocal declarations per function
         
     def parse(self, code: str) -> Dict[str, Any]:
         """Parse Python code and extract all relevant information."""
@@ -27,16 +31,23 @@ class CodeParser:
         self.classes = []
         self.global_vars = []
         self.local_vars = []
+        self.execution_scope_vars = []
         self.imports = []
         self.decorators = []
         self.function_calls = []
         self.method_calls = []
         self.class_instantiations = []
         self.control_flow = []
+        self.warnings = []
+        self.global_declarations = {}
+        self.nonlocal_declarations = {}
         
         # Visit all nodes
         visitor = CodeVisitor(self)
         visitor.visit(tree)
+        
+        # Detect warnings after parsing
+        self._detect_warnings()
         
         # Count functions by type
         sync_functions = [f for f in self.functions if not f.get('is_async', False) and not f.get('is_nested', False)]
@@ -65,6 +76,7 @@ class CodeParser:
                 'total_methods': len(methods),
                 'global_variables': len(self.global_vars),
                 'local_variables': len(self.local_vars),
+                'execution_scope_variables': len(self.execution_scope_vars),
                 'class_variables': len(class_vars),
                 'instance_variables': len(instance_vars),
                 'total_decorators': len(self.decorators),
@@ -74,13 +86,104 @@ class CodeParser:
             'classes': self.classes,
             'global_variables': self.global_vars,
             'local_variables': self.local_vars,
+            'execution_scope_variables': self.execution_scope_vars,
             'imports': self.imports,
             'decorators': self.decorators,
             'function_calls': self.function_calls,
             'method_calls': self.method_calls,
             'class_instantiations': self.class_instantiations,
-            'control_flow': self.control_flow
+            'control_flow': self.control_flow,
+            'warnings': self.warnings
         }
+    
+    def _detect_warnings(self):
+        """Detect code warnings: shadowed variables, duplicates, global overrides."""
+        # Get all global variable names
+        global_names = {v['name']: v for v in self.global_vars}
+        
+        # Track warnings to avoid duplicates
+        warning_keys = set()
+        
+        # Check for shadowed variables and global overrides
+        for local_var in self.local_vars:
+            var_name = local_var['name']
+            func_name = local_var['function']
+            
+            if var_name in global_names:
+                # Check if it's declared as global in this function
+                is_declared_global = (
+                    func_name in self.global_declarations and 
+                    var_name in self.global_declarations[func_name]
+                )
+                
+                if not is_declared_global:
+                    # This is a shadowed variable / global override
+                    warning_key = f'shadow_{func_name}_{var_name}'
+                    if warning_key not in warning_keys:
+                        warning_keys.add(warning_key)
+                        self.warnings.append({
+                            'type': 'global_override',
+                            'severity': 'warning',
+                            'message': f'Variable "{var_name}" in {func_name} shadows global variable (consider using "global {var_name}")',
+                            'variable': var_name,
+                            'line': local_var['line'],
+                            'function': func_name,
+                            'global_line': global_names[var_name]['line']
+                        })
+        
+        # Check for duplicate function names
+        function_names = {}
+        for func in self.functions:
+            func_name = func['name']
+            if func_name in function_names:
+                self.warnings.append({
+                    'type': 'duplicate_function',
+                    'severity': 'warning',
+                    'message': f'Duplicate function name "{func_name}"',
+                    'name': func_name,
+                    'line': func['line'],
+                    'previous_line': function_names[func_name]['line']
+                })
+            else:
+                function_names[func_name] = func
+        
+        # Check for duplicate class names
+        class_names = {}
+        for cls in self.classes:
+            cls_name = cls['name']
+            if cls_name in class_names:
+                self.warnings.append({
+                    'type': 'duplicate_class',
+                    'severity': 'warning',
+                    'message': f'Duplicate class name "{cls_name}"',
+                    'name': cls_name,
+                    'line': cls['line'],
+                    'previous_line': class_names[cls_name]['line']
+                })
+            else:
+                class_names[cls_name] = cls
+        
+        # Check for duplicate variable names in same scope
+        # Group local variables by function
+        local_by_function = {}
+        for local_var in self.local_vars:
+            func_name = local_var['function']
+            if func_name not in local_by_function:
+                local_by_function[func_name] = {}
+            var_name = local_var['name']
+            if var_name in local_by_function[func_name]:
+                self.warnings.append({
+                    'type': 'duplicate_variable',
+                    'severity': 'info',
+                    'message': f'Variable "{var_name}" defined multiple times in {func_name}',
+                    'variable': var_name,
+                    'line': local_var['line'],
+                    'function': func_name,
+                    'previous_line': local_by_function[func_name][var_name]['line']
+                })
+            else:
+                local_by_function[func_name][var_name] = local_var
+        
 
 
 class CodeVisitor(ast.NodeVisitor):
@@ -90,6 +193,7 @@ class CodeVisitor(ast.NodeVisitor):
         self.current_function = None
         self.nesting_level = 0
         self.inside_method = False
+        self.inside_name_main = False  # Track if we're inside if __name__ == "__main__"
         self.node_counter = 0  # For unique node IDs in flowcharts
         
     def visit_FunctionDef(self, node):
@@ -103,7 +207,8 @@ class CodeVisitor(ast.NodeVisitor):
             'is_nested': is_nested,
             'decorators': [self._get_decorator_name(d) for d in node.decorator_list],
             'parameters': [arg.arg for arg in node.args.args],
-            'returns': self._get_return_annotation(node.returns) if node.returns else None
+            'returns': self._get_return_annotation(node.returns) if node.returns else None,
+            'docstring': self._get_docstring(node.body)
         }
         
         # Check for decorators
@@ -152,7 +257,8 @@ class CodeVisitor(ast.NodeVisitor):
             'is_nested': is_nested,
             'decorators': [self._get_decorator_name(d) for d in node.decorator_list],
             'parameters': [arg.arg for arg in node.args.args],
-            'returns': self._get_return_annotation(node.returns) if node.returns else None
+            'returns': self._get_return_annotation(node.returns) if node.returns else None,
+            'docstring': self._get_docstring(node.body)
         }
         
         # Check for decorators
@@ -199,7 +305,8 @@ class CodeVisitor(ast.NodeVisitor):
             'decorators': [self._get_decorator_name(d) for d in node.decorator_list],
             'methods': [],
             'class_variables': [],
-            'instance_variables': []
+            'instance_variables': [],
+            'docstring': self._get_docstring(node.body)
         }
         
         # Check for decorators
@@ -237,9 +344,20 @@ class CodeVisitor(ast.NodeVisitor):
                     if var_name not in [v['name'] for v in self.current_class['class_variables']]:
                         self.current_class['class_variables'].append(var_info)
                 elif not self.current_class and self.current_function is None and self.nesting_level == 0:
-                    # Global variable - only at module level (not inside function or class)
-                    if var_name not in [v['name'] for v in self.parser.global_vars]:
-                        self.parser.global_vars.append(var_info)
+                    # Check if we're inside if __name__ == "__main__"
+                    if self.inside_name_main:
+                        # Execution-scope variable
+                        exec_var_info = {
+                            'name': var_name,
+                            'line': node.lineno,
+                            'type': self._infer_type(node.value)
+                        }
+                        if var_name not in [v['name'] for v in self.parser.execution_scope_vars]:
+                            self.parser.execution_scope_vars.append(exec_var_info)
+                    else:
+                        # Global variable - only at module level (not inside function or class or __main__)
+                        if var_name not in [v['name'] for v in self.parser.global_vars]:
+                            self.parser.global_vars.append(var_info)
                 elif self.current_function is not None:
                     # Local variable - inside a function or method
                     local_var_info = {
@@ -283,9 +401,20 @@ class CodeVisitor(ast.NodeVisitor):
                 if var_name not in [v['name'] for v in self.current_class['class_variables']]:
                     self.current_class['class_variables'].append(var_info)
             elif not self.current_class and self.current_function is None and self.nesting_level == 0:
-                # Global variable - only at module level (not inside function or class)
-                if var_name not in [v['name'] for v in self.parser.global_vars]:
-                    self.parser.global_vars.append(var_info)
+                # Check if we're inside if __name__ == "__main__"
+                if self.inside_name_main:
+                    # Execution-scope variable
+                    exec_var_info = {
+                        'name': var_name,
+                        'line': node.lineno,
+                        'type': self._get_annotation_name(node.annotation) if node.annotation else None
+                    }
+                    if var_name not in [v['name'] for v in self.parser.execution_scope_vars]:
+                        self.parser.execution_scope_vars.append(exec_var_info)
+                else:
+                    # Global variable - only at module level (not inside function or class or __main__)
+                    if var_name not in [v['name'] for v in self.parser.global_vars]:
+                        self.parser.global_vars.append(var_info)
             elif self.current_function is not None:
                 # Local variable - inside a function or method
                 local_var_info = {
@@ -341,6 +470,24 @@ class CodeVisitor(ast.NodeVisitor):
         
         self.generic_visit(node)
     
+    def visit_Global(self, node):
+        """Visit global declarations."""
+        if self.current_function:
+            if self.current_function not in self.parser.global_declarations:
+                self.parser.global_declarations[self.current_function] = []
+            # node.names is a list of strings, not AST nodes
+            self.parser.global_declarations[self.current_function].extend(node.names)
+        self.generic_visit(node)
+    
+    def visit_Nonlocal(self, node):
+        """Visit nonlocal declarations."""
+        if self.current_function:
+            if self.current_function not in self.parser.nonlocal_declarations:
+                self.parser.nonlocal_declarations[self.current_function] = []
+            # node.names is a list of strings, not AST nodes
+            self.parser.nonlocal_declarations[self.current_function].extend(node.names)
+        self.generic_visit(node)
+    
     def _get_decorator_name(self, node):
         """Extract decorator name from AST node."""
         if isinstance(node, ast.Name):
@@ -380,6 +527,25 @@ class CodeVisitor(ast.NodeVisitor):
             if isinstance(node.value, ast.Name):
                 return node.value.id
         return 'unknown'
+    
+    def _get_docstring(self, body):
+        """Extract docstring from function/class body."""
+        if not body:
+            return None
+        
+        # First statement should be an Expr with a Constant string
+        first_stmt = body[0]
+        if isinstance(first_stmt, ast.Expr):
+            if isinstance(first_stmt.value, ast.Constant) and isinstance(first_stmt.value.value, str):
+                docstring = first_stmt.value.value.strip()
+                # Get first line or first sentence
+                lines = docstring.split('\n')
+                first_line = lines[0].strip()
+                # Limit to 80 characters for diagram display
+                if len(first_line) > 80:
+                    first_line = first_line[:77] + "..."
+                return first_line
+        return None
     
     def _get_return_annotation(self, node):
         """Extract return type annotation."""
@@ -449,16 +615,40 @@ class CodeVisitor(ast.NodeVisitor):
     
     def visit_If(self, node):
         """Track if/else control flow."""
-        if self.current_function:
-            flow_info = {
-                'type': 'if',
-                'function': self.current_function,
-                'line': node.lineno,
-                'condition': self._get_condition_string(node.test),
-                'has_else': len(node.orelse) > 0
-            }
-            self.parser.control_flow.append(flow_info)
-        self.generic_visit(node)
+        # Check if this is "if __name__ == '__main__'"
+        is_name_main = self._is_name_main_check(node.test)
+        
+        if is_name_main and not self.current_function:
+            # We're entering the if __name__ == "__main__" block at module level
+            prev_inside_name_main = self.inside_name_main
+            self.inside_name_main = True
+            self.generic_visit(node)
+            self.inside_name_main = prev_inside_name_main
+        else:
+            # Regular if statement
+            if self.current_function:
+                flow_info = {
+                    'type': 'if',
+                    'function': self.current_function,
+                    'line': node.lineno,
+                    'condition': self._get_condition_string(node.test),
+                    'has_else': len(node.orelse) > 0
+                }
+                self.parser.control_flow.append(flow_info)
+            self.generic_visit(node)
+    
+    def _is_name_main_check(self, node):
+        """Check if an AST node represents 'if __name__ == "__main__"'."""
+        if isinstance(node, ast.Compare):
+            if len(node.ops) == 1 and isinstance(node.ops[0], ast.Eq):
+                if isinstance(node.left, ast.Name) and node.left.id == '__name__':
+                    if len(node.comparators) == 1:
+                        comparator = node.comparators[0]
+                        if isinstance(comparator, ast.Constant) and comparator.value == '__main__':
+                            return True
+                        elif isinstance(comparator, ast.Str) and comparator.s == '__main__':
+                            return True
+        return False
     
     def visit_For(self, node):
         """Track for loop control flow."""
