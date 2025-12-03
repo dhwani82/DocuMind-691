@@ -628,7 +628,7 @@ class DiagramGenerator:
         for inst in self.class_instantiations:
             caller = inst['caller']
             class_name = inst['class_name']
-            
+        
             # Get caller ID (can be function or method)
             caller_id = None
             if '.' in caller:

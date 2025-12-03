@@ -1,5 +1,6 @@
 """Generate SVG flowcharts from parsed control flow."""
 from typing import Dict, List, Any, Tuple, Optional
+import math
 
 
 class SVGFlowchartGenerator:
@@ -58,129 +59,186 @@ class SVGFlowchartGenerator:
         # Sort flow items by line number
         flow_items = sorted(flow_items, key=lambda x: x.get('line', 0))
         
-        # Build flowchart structure
+        # Build flowchart structure with proper layout
         nodes = []
-        connections = []
-        x_center = 300
-        y_start = 60
+        edges = []
+        node_map = {}
+        
+        # Layout constants
+        NODE_SPACING_Y = 80
+        BRANCH_SPACING_X = 200
+        NODE_WIDTH = 150
+        NODE_HEIGHT = 60
+        DECISION_WIDTH = 120
+        DECISION_HEIGHT = 80
         
         # Start node
         start_node = {
             'id': 'start',
             'type': 'start',
             'text': f'Start: {func_name}',
-            'x': x_center,
-            'y': y_start,
-            'width': 140,
-            'height': 50
+            'x': 400,
+            'y': 50,
+            'width': NODE_WIDTH,
+            'height': NODE_HEIGHT
         }
         nodes.append(start_node)
-        node_map = {'start': 0}
+        node_map['start'] = len(nodes) - 1
         
-        current_y = y_start + 90
+        current_y = 150
         current_node_id = 'start'
         node_counter = 1
         
-        # Process flow items in order
-        for i, flow in enumerate(flow_items):
+        # Track branch positions for proper merging
+        branch_stack = []
+        
+        # Process flow items
+        for flow in flow_items:
             flow_type = flow.get('type')
-            node_id = f'node_{node_counter}'
             
             if flow_type == 'if':
                 condition = flow.get('condition', 'condition')
                 has_else = flow.get('has_else', False)
                 
                 # Truncate long conditions
-                if len(condition) > 40:
-                    condition = condition[:37] + "..."
+                if len(condition) > 30:
+                    condition = condition[:27] + "..."
                 
                 # Decision node (diamond)
+                decision_id = f'decision_{node_counter}'
                 decision_node = {
-                    'id': node_id,
+                    'id': decision_id,
                     'type': 'decision',
                     'text': condition,
-                    'x': x_center,
+                    'x': 400,
                     'y': current_y,
-                    'width': max(160, len(condition) * 7),
-                    'height': 70
+                    'width': DECISION_WIDTH,
+                    'height': DECISION_HEIGHT
                 }
                 nodes.append(decision_node)
-                node_map[node_id] = len(nodes) - 1
+                node_map[decision_id] = len(nodes) - 1
                 
                 # Connect previous node to decision
-                connections.append((current_node_id, node_id, None))
+                edges.append({
+                    'from': current_node_id,
+                    'to': decision_id,
+                    'label': None,
+                    'type': 'straight'
+                })
                 
-                current_y += 100
+                current_y += NODE_SPACING_Y + DECISION_HEIGHT // 2
                 
                 # True branch
-                true_node_id = f'{node_id}_true'
+                true_id = f'{decision_id}_true'
                 true_node = {
-                    'id': true_node_id,
+                    'id': true_id,
                     'type': 'process',
                     'text': 'If Body',
-                    'x': x_center - 180 if has_else else x_center,
+                    'x': 400 - (BRANCH_SPACING_X if has_else else 0),
                     'y': current_y,
-                    'width': 120,
-                    'height': 50
+                    'width': NODE_WIDTH,
+                    'height': NODE_HEIGHT
                 }
                 nodes.append(true_node)
-                node_map[true_node_id] = len(nodes) - 1
-                connections.append((node_id, true_node_id, 'True'))
+                node_map[true_id] = len(nodes) - 1
+                
+                edges.append({
+                    'from': decision_id,
+                    'to': true_id,
+                    'label': 'Yes',
+                    'type': 'straight',
+                    'from_side': 'left' if has_else else 'bottom',
+                    'to_side': 'top'
+                })
                 
                 if has_else:
                     # False branch
-                    false_node_id = f'{node_id}_false'
+                    false_id = f'{decision_id}_false'
                     false_node = {
-                        'id': false_node_id,
+                        'id': false_id,
                         'type': 'process',
                         'text': 'Else Body',
-                        'x': x_center + 180,
+                        'x': 400 + BRANCH_SPACING_X,
                         'y': current_y,
-                        'width': 120,
-                        'height': 50
+                        'width': NODE_WIDTH,
+                        'height': NODE_HEIGHT
                     }
                     nodes.append(false_node)
-                    node_map[false_node_id] = len(nodes) - 1
-                    connections.append((node_id, false_node_id, 'False'))
+                    node_map[false_id] = len(nodes) - 1
                     
-                    current_y += 90
+                    edges.append({
+                        'from': decision_id,
+                        'to': false_id,
+                        'label': 'No',
+                        'type': 'straight',
+                        'from_side': 'right',
+                        'to_side': 'top'
+                    })
+                    
+                    current_y += NODE_SPACING_Y
                     
                     # Merge point
-                    merge_node_id = f'{node_id}_merge'
+                    merge_id = f'{decision_id}_merge'
                     merge_node = {
-                        'id': merge_node_id,
+                        'id': merge_id,
                         'type': 'process',
                         'text': 'Continue',
-                        'x': x_center,
+                        'x': 400,
                         'y': current_y,
-                        'width': 120,
-                        'height': 50
+                        'width': NODE_WIDTH,
+                        'height': NODE_HEIGHT
                     }
                     nodes.append(merge_node)
-                    node_map[merge_node_id] = len(nodes) - 1
-                    connections.append((true_node_id, merge_node_id, None))
-                    connections.append((false_node_id, merge_node_id, None))
-                    current_node_id = merge_node_id
+                    node_map[merge_id] = len(nodes) - 1
+                    
+                    edges.append({
+                        'from': true_id,
+                        'to': merge_id,
+                        'label': None,
+                        'type': 'straight'
+                    })
+                    edges.append({
+                        'from': false_id,
+                        'to': merge_id,
+                        'label': None,
+                        'type': 'straight'
+                    })
+                    
+                    current_node_id = merge_id
                 else:
                     # No else - false goes directly to merge
-                    current_y += 90
-                    merge_node_id = f'{node_id}_merge'
+                    current_y += NODE_SPACING_Y
+                    merge_id = f'{decision_id}_merge'
                     merge_node = {
-                        'id': merge_node_id,
+                        'id': merge_id,
                         'type': 'process',
                         'text': 'Continue',
-                        'x': x_center,
+                        'x': 400,
                         'y': current_y,
-                        'width': 120,
-                        'height': 50
+                        'width': NODE_WIDTH,
+                        'height': NODE_HEIGHT
                     }
                     nodes.append(merge_node)
-                    node_map[merge_node_id] = len(nodes) - 1
-                    connections.append((true_node_id, merge_node_id, None))
-                    connections.append((node_id, merge_node_id, 'False'))
-                    current_node_id = merge_node_id
+                    node_map[merge_id] = len(nodes) - 1
+                    
+                    edges.append({
+                        'from': true_id,
+                        'to': merge_id,
+                        'label': None,
+                        'type': 'straight'
+                    })
+                    edges.append({
+                        'from': decision_id,
+                        'to': merge_id,
+                        'label': 'No',
+                        'type': 'straight',
+                        'from_side': 'bottom',
+                        'to_side': 'top'
+                    })
+                    
+                    current_node_id = merge_id
                 
-                current_y += 90
+                current_y += NODE_SPACING_Y
                 node_counter += 1
             
             elif flow_type == 'for':
@@ -188,240 +246,349 @@ class SVGFlowchartGenerator:
                 iter_expr = flow.get('iter', 'iterable')
                 
                 # Truncate long expressions
-                if len(iter_expr) > 30:
-                    iter_expr = iter_expr[:27] + "..."
+                if len(iter_expr) > 25:
+                    iter_expr = iter_expr[:22] + "..."
                 
                 loop_text = f'for {target} in {iter_expr}'
                 
                 # Loop decision node
+                loop_id = f'loop_{node_counter}'
                 loop_node = {
-                    'id': node_id,
+                    'id': loop_id,
                     'type': 'decision',
                     'text': loop_text,
-                    'x': x_center,
+                    'x': 400,
                     'y': current_y,
-                    'width': max(180, len(loop_text) * 7),
-                    'height': 70
+                    'width': DECISION_WIDTH,
+                    'height': DECISION_HEIGHT
                 }
                 nodes.append(loop_node)
-                node_map[node_id] = len(nodes) - 1
+                node_map[loop_id] = len(nodes) - 1
                 
-                # Connect previous node to loop
-                connections.append((current_node_id, node_id, None))
+                edges.append({
+                    'from': current_node_id,
+                    'to': loop_id,
+                    'label': None,
+                    'type': 'straight'
+                })
                 
-                current_y += 100
+                current_y += NODE_SPACING_Y + DECISION_HEIGHT // 2
                 
                 # Loop body
-                body_node_id = f'{node_id}_body'
+                body_id = f'{loop_id}_body'
                 body_node = {
-                    'id': body_node_id,
+                    'id': body_id,
                     'type': 'process',
                     'text': 'Loop Body',
-                    'x': x_center,
+                    'x': 400,
                     'y': current_y,
-                    'width': 120,
-                    'height': 50
+                    'width': NODE_WIDTH,
+                    'height': NODE_HEIGHT
                 }
                 nodes.append(body_node)
-                node_map[body_node_id] = len(nodes) - 1
-                connections.append((node_id, body_node_id, 'Has items'))
+                node_map[body_id] = len(nodes) - 1
                 
-                current_y += 90
+                edges.append({
+                    'from': loop_id,
+                    'to': body_id,
+                    'label': 'Has items',
+                    'type': 'straight',
+                    'from_side': 'bottom',
+                    'to_side': 'top'
+                })
+                
+                current_y += NODE_SPACING_Y
                 
                 # End loop (continue after loop)
-                end_loop_id = f'{node_id}_end'
+                end_loop_id = f'{loop_id}_end'
                 end_loop_node = {
                     'id': end_loop_id,
                     'type': 'process',
                     'text': 'Continue',
-                    'x': x_center,
+                    'x': 400,
                     'y': current_y,
-                    'width': 120,
-                    'height': 50
+                    'width': NODE_WIDTH,
+                    'height': NODE_HEIGHT
                 }
                 nodes.append(end_loop_node)
                 node_map[end_loop_id] = len(nodes) - 1
-                connections.append((node_id, end_loop_id, 'No items'))
+                
+                edges.append({
+                    'from': loop_id,
+                    'to': end_loop_id,
+                    'label': 'No items',
+                    'type': 'straight',
+                    'from_side': 'right',
+                    'to_side': 'top'
+                })
                 
                 # Loop back arrow from body to decision
-                connections.append((body_node_id, node_id, 'Loop back'))
+                edges.append({
+                    'from': body_id,
+                    'to': loop_id,
+                    'label': 'Loop back',
+                    'type': 'curved',
+                    'curvature': -60
+                })
                 
                 current_node_id = end_loop_id
-                current_y += 90
+                current_y += NODE_SPACING_Y
                 node_counter += 1
             
             elif flow_type == 'while':
                 condition = flow.get('condition', 'condition')
                 
                 # Truncate long conditions
-                if len(condition) > 40:
-                    condition = condition[:37] + "..."
+                if len(condition) > 30:
+                    condition = condition[:27] + "..."
                 
                 # While decision node
+                while_id = f'while_{node_counter}'
                 while_node = {
-                    'id': node_id,
+                    'id': while_id,
                     'type': 'decision',
                     'text': condition,
-                    'x': x_center,
+                    'x': 400,
                     'y': current_y,
-                    'width': max(160, len(condition) * 7),
-                    'height': 70
+                    'width': DECISION_WIDTH,
+                    'height': DECISION_HEIGHT
                 }
                 nodes.append(while_node)
-                node_map[node_id] = len(nodes) - 1
+                node_map[while_id] = len(nodes) - 1
                 
-                # Connect previous node to while
-                connections.append((current_node_id, node_id, None))
+                edges.append({
+                    'from': current_node_id,
+                    'to': while_id,
+                    'label': None,
+                    'type': 'straight'
+                })
                 
-                current_y += 100
+                current_y += NODE_SPACING_Y + DECISION_HEIGHT // 2
                 
                 # While body
-                body_node_id = f'{node_id}_body'
+                body_id = f'{while_id}_body'
                 body_node = {
-                    'id': body_node_id,
+                    'id': body_id,
                     'type': 'process',
                     'text': 'While Body',
-                    'x': x_center,
+                    'x': 400,
                     'y': current_y,
-                    'width': 120,
-                    'height': 50
+                    'width': NODE_WIDTH,
+                    'height': NODE_HEIGHT
                 }
                 nodes.append(body_node)
-                node_map[body_node_id] = len(nodes) - 1
-                connections.append((node_id, body_node_id, 'True'))
+                node_map[body_id] = len(nodes) - 1
                 
-                current_y += 90
+                edges.append({
+                    'from': while_id,
+                    'to': body_id,
+                    'label': 'True',
+                    'type': 'straight',
+                    'from_side': 'bottom',
+                    'to_side': 'top'
+                })
+                
+                current_y += NODE_SPACING_Y
                 
                 # End while (continue after loop)
-                end_while_id = f'{node_id}_end'
+                end_while_id = f'{while_id}_end'
                 end_while_node = {
                     'id': end_while_id,
                     'type': 'process',
                     'text': 'Continue',
-                    'x': x_center,
+                    'x': 400,
                     'y': current_y,
-                    'width': 120,
-                    'height': 50
+                    'width': NODE_WIDTH,
+                    'height': NODE_HEIGHT
                 }
                 nodes.append(end_while_node)
                 node_map[end_while_id] = len(nodes) - 1
-                connections.append((node_id, end_while_id, 'False'))
+                
+                edges.append({
+                    'from': while_id,
+                    'to': end_while_id,
+                    'label': 'False',
+                    'type': 'straight',
+                    'from_side': 'right',
+                    'to_side': 'top'
+                })
                 
                 # Loop back arrow from body to decision
-                connections.append((body_node_id, node_id, 'Loop back'))
+                edges.append({
+                    'from': body_id,
+                    'to': while_id,
+                    'label': 'Loop back',
+                    'type': 'curved',
+                    'curvature': -60
+                })
                 
                 current_node_id = end_while_id
-                current_y += 90
+                current_y += NODE_SPACING_Y
                 node_counter += 1
             
             elif flow_type == 'return':
                 # Return node
+                return_id = f'return_{node_counter}'
                 return_node = {
-                    'id': node_id,
+                    'id': return_id,
                     'type': 'end',
                     'text': 'Return',
-                    'x': x_center,
+                    'x': 400,
                     'y': current_y,
-                    'width': 120,
-                    'height': 50
+                    'width': NODE_WIDTH,
+                    'height': NODE_HEIGHT
                 }
                 nodes.append(return_node)
-                node_map[node_id] = len(nodes) - 1
-                connections.append((current_node_id, node_id, None))
+                node_map[return_id] = len(nodes) - 1
+                
+                edges.append({
+                    'from': current_node_id,
+                    'to': return_id,
+                    'label': None,
+                    'type': 'straight'
+                })
                 
                 # End node
+                end_id = 'end'
                 end_node = {
-                    'id': 'end',
+                    'id': end_id,
                     'type': 'end',
                     'text': 'End',
-                    'x': x_center,
-                    'y': current_y + 90,
-                    'width': 120,
-                    'height': 50
+                    'x': 400,
+                    'y': current_y + NODE_SPACING_Y,
+                    'width': NODE_WIDTH,
+                    'height': NODE_HEIGHT
                 }
                 nodes.append(end_node)
-                node_map['end'] = len(nodes) - 1
-                connections.append((node_id, 'end', None))
+                node_map[end_id] = len(nodes) - 1
+                
+                edges.append({
+                    'from': return_id,
+                    'to': end_id,
+                    'label': None,
+                    'type': 'straight'
+                })
                 break
         
         # Add end node if not already added
         if 'end' not in node_map:
+            end_id = 'end'
             end_node = {
-                'id': 'end',
+                'id': end_id,
                 'type': 'end',
                 'text': 'End',
-                'x': x_center,
+                'x': 400,
                 'y': current_y,
-                'width': 120,
-                'height': 50
+                'width': NODE_WIDTH,
+                'height': NODE_HEIGHT
             }
             nodes.append(end_node)
-            node_map['end'] = len(nodes) - 1
-            connections.append((current_node_id, 'end', None))
+            node_map[end_id] = len(nodes) - 1
+            
+            edges.append({
+                'from': current_node_id,
+                'to': end_id,
+                'label': None,
+                'type': 'straight'
+            })
         
         # Calculate SVG dimensions
         max_y = max(node['y'] for node in nodes) + 100
-        max_x = max(abs(node['x'] - x_center) + node['width']//2 for node in nodes) * 2 + 100
-        svg_width = max(600, max_x)
-        svg_height = max(400, max_y)
+        max_x = max(abs(node['x'] - 400) + node['width']//2 for node in nodes) * 2 + 200
+        svg_width = max(800, max_x)
+        svg_height = max(500, max_y)
         
         # Generate SVG
-        svg = f'''<svg width="{svg_width}" height="{svg_height}" xmlns="http://www.w3.org/2000/svg">
+        svg = self._generate_svg_content(nodes, edges, node_map, svg_width, svg_height)
+        return svg
+    
+    def _get_node_connection_point(self, node: Dict, side: str = 'bottom') -> Tuple[float, float]:
+        """Get connection point coordinates for a node based on side."""
+        x, y = node['x'], node['y']
+        w, h = node['width'], node['height']
+        node_type = node['type']
+        
+        if node_type == 'decision':
+            # Diamond shape
+            if side == 'top':
+                return (x, y - h // 2)
+            elif side == 'bottom':
+                return (x, y + h // 2)
+            elif side == 'left':
+                return (x - w // 2, y)
+            elif side == 'right':
+                return (x + w // 2, y)
+            else:
+                return (x, y + h // 2)
+        else:
+            # Rectangle or oval
+            if side == 'top':
+                return (x, y - h // 2)
+            elif side == 'bottom':
+                return (x, y + h // 2)
+            elif side == 'left':
+                return (x - w // 2, y)
+            elif side == 'right':
+                return (x + w // 2, y)
+            else:
+                return (x, y + h // 2)
+    
+    def _generate_svg_content(self, nodes: List[Dict], edges: List[Dict], node_map: Dict, width: int, height: int) -> str:
+        """Generate the actual SVG content."""
+        svg = f'''<svg width="{width}" height="{height}" xmlns="http://www.w3.org/2000/svg">
   <defs>
     <marker id="arrowhead" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto">
-      <polygon points="0 0, 10 3, 0 6" fill="#333" />
+      <polygon points="0 0, 10 3, 0 6" fill="#ffffff" stroke="#333" stroke-width="0.5" />
     </marker>
   </defs>
   <style>
-    .node-text {{ font-family: Arial, sans-serif; font-size: 11px; text-anchor: middle; dominant-baseline: middle; fill: #333; }}
-    .label-text {{ font-family: Arial, sans-serif; font-size: 10px; fill: #666; }}
+    .node-text {{ font-family: Arial, sans-serif; font-size: 12px; text-anchor: middle; dominant-baseline: middle; fill: #333; font-weight: 500; }}
+    .edge-label {{ font-family: Arial, sans-serif; font-size: 11px; fill: #666; text-anchor: middle; }}
   </style>
 '''
         
-        # Draw connections first (so nodes appear on top)
-        for from_id, to_id, label in connections:
-            if from_id in node_map and to_id in node_map:
-                from_node = nodes[node_map[from_id]]
-                to_node = nodes[node_map[to_id]]
+        # Draw edges first (so nodes appear on top)
+        for edge in edges:
+            from_id = edge['from']
+            to_id = edge['to']
+            
+            if from_id not in node_map or to_id not in node_map:
+                continue
+            
+            from_node = nodes[node_map[from_id]]
+            to_node = nodes[node_map[to_id]]
+            
+            # Get connection points
+            from_side = edge.get('from_side', 'bottom')
+            to_side = edge.get('to_side', 'top')
+            
+            x1, y1 = self._get_node_connection_point(from_node, from_side)
+            x2, y2 = self._get_node_connection_point(to_node, to_side)
+            
+            # Draw edge
+            if edge['type'] == 'curved':
+                # Curved path for loop back
+                curvature = edge.get('curvature', -50)
+                mid_x = (x1 + x2) / 2
+                mid_y = min(y1, y2) + curvature
                 
-                # Calculate connection points based on node types
-                if from_node['type'] == 'decision':
-                    # From bottom of diamond
-                    x1, y1 = from_node['x'], from_node['y'] + from_node['height'] // 2
-                elif from_node['type'] == 'start':
-                    # From bottom of oval
-                    x1, y1 = from_node['x'], from_node['y'] + from_node['height'] // 2
-                else:
-                    # From bottom of rectangle
-                    x1, y1 = from_node['x'], from_node['y'] + from_node['height'] // 2
+                path_d = f"M {x1} {y1} Q {mid_x} {mid_y} {x2} {y2}"
+                svg += f'  <path d="{path_d}" stroke="#333" stroke-width="2" fill="none" marker-end="url(#arrowhead)" />\n'
                 
-                if to_node['type'] == 'decision':
-                    # To top of diamond
-                    x2, y2 = to_node['x'], to_node['y'] - to_node['height'] // 2
-                elif to_node['type'] == 'end':
-                    # To top of oval
-                    x2, y2 = to_node['x'], to_node['y'] - to_node['height'] // 2
-                else:
-                    # To top of rectangle
-                    x2, y2 = to_node['x'], to_node['y'] - to_node['height'] // 2
+                # Label for curved edge
+                if edge.get('label'):
+                    label_x = mid_x
+                    label_y = mid_y - 10
+                    svg += f'  <text x="{label_x}" y="{label_y}" class="edge-label">{edge["label"]}</text>\n'
+            else:
+                # Straight line
+                svg += f'  <line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)" />\n'
                 
-                # Special handling for loop back arrows
-                if label == 'Loop back':
-                    # Create curved path for loop back
-                    mid_x = (x1 + x2) / 2
-                    mid_y = min(y1, y2) - 40
-                    svg += f'  <path d="M {x1} {y1} Q {mid_x} {mid_y} {x2} {y2}" stroke="#333" stroke-width="2" fill="none" marker-end="url(#arrowhead)" />\n'
-                else:
-                    # Straight line
-                    svg += f'  <line x1="{x1}" y1="{y1}" x2="{x2}" y2="{y2}" stroke="#333" stroke-width="2" marker-end="url(#arrowhead)" />\n'
-                
-                # Add label
-                if label:
+                # Label for straight edge
+                if edge.get('label'):
                     label_x = (x1 + x2) / 2
-                    label_y = (y1 + y2) / 2
-                    if label == 'Loop back':
-                        label_y = mid_y - 10
-                    svg += f'  <text x="{label_x}" y="{label_y}" class="label-text" text-anchor="middle">{label}</text>\n'
+                    label_y = (y1 + y2) / 2 - 5
+                    svg += f'  <text x="{label_x}" y="{label_y}" class="edge-label">{edge["label"]}</text>\n'
         
         # Draw nodes
         for node in nodes:
@@ -430,10 +597,9 @@ class SVGFlowchartGenerator:
             text = node['text']
             node_type = node['type']
             
-            # Word wrap text if too long
+            # Word wrap text
             words = text.split()
-            if len(text) > 25:
-                # Split into two lines
+            if len(text) > 20:
                 mid = len(words) // 2
                 line1 = ' '.join(words[:mid])
                 line2 = ' '.join(words[mid:])
@@ -444,24 +610,31 @@ class SVGFlowchartGenerator:
             if node_type == 'start' or node_type == 'end':
                 # Oval shape
                 rx, ry = w // 2, h // 2
-                svg += f'  <ellipse cx="{x}" cy="{y}" rx="{rx}" ry="{ry}" fill="#e8f4f8" stroke="#2196F3" stroke-width="3" />\n'
+                fill_color = "#e8f4f8" if node_type == 'start' else "#ffebee"
+                stroke_color = "#2196F3" if node_type == 'start' else "#f44336"
+                stroke_width = "3" if node_type == 'start' else "2"
+                
+                svg += f'  <ellipse cx="{x}" cy="{y}" rx="{rx}" ry="{ry}" fill="{fill_color}" stroke="{stroke_color}" stroke-width="{stroke_width}" />\n'
+                
                 for i, line in enumerate(text_lines):
-                    y_offset = (i - (len(text_lines) - 1) / 2) * 12
+                    y_offset = (i - (len(text_lines) - 1) / 2) * 14
                     svg += f'  <text x="{x}" y="{y + y_offset}" class="node-text">{line}</text>\n'
             
             elif node_type == 'decision':
                 # Diamond shape
                 points = f"{x},{y-h//2} {x+w//2},{y} {x},{y+h//2} {x-w//2},{y}"
                 svg += f'  <polygon points="{points}" fill="#fff4e6" stroke="#ff9800" stroke-width="2" />\n'
+                
                 for i, line in enumerate(text_lines):
-                    y_offset = (i - (len(text_lines) - 1) / 2) * 12
+                    y_offset = (i - (len(text_lines) - 1) / 2) * 14
                     svg += f'  <text x="{x}" y="{y + y_offset}" class="node-text">{line}</text>\n'
             
             else:
-                # Rectangle
+                # Rectangle (process node)
                 svg += f'  <rect x="{x-w//2}" y="{y-h//2}" width="{w}" height="{h}" fill="#e8f5e9" stroke="#4caf50" stroke-width="2" rx="5" />\n'
+                
                 for i, line in enumerate(text_lines):
-                    y_offset = (i - (len(text_lines) - 1) / 2) * 12
+                    y_offset = (i - (len(text_lines) - 1) / 2) * 14
                     svg += f'  <text x="{x}" y="{y + y_offset}" class="node-text">{line}</text>\n'
         
         svg += '</svg>'

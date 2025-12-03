@@ -986,6 +986,105 @@ header h1 {
     border-color: rgba(59, 130, 246, 0.4);
 }
 
+/* Style Mermaid arrows/edges to be white in architecture diagram */
+#architecture-mermaid svg path[stroke],
+#architecture-mermaid svg line[stroke],
+#architecture-mermaid svg .edge-thickness-normal,
+#architecture-mermaid svg .flowchart-link {
+    stroke: #ffffff !important;
+}
+
+#architecture-mermaid svg marker path {
+    fill: #ffffff !important;
+    stroke: #333 !important;
+    stroke-width: 0.5 !important;
+}
+
+/* Style Mermaid arrows/edges to be white in dependencies diagram */
+#dependencies-mermaid svg path[stroke],
+#dependencies-mermaid svg line[stroke],
+#dependencies-mermaid svg .edge-thickness-normal,
+#dependencies-mermaid svg .flowchart-link {
+    stroke: #ffffff !important;
+}
+
+#dependencies-mermaid svg marker path {
+    fill: #ffffff !important;
+    stroke: #333 !important;
+    stroke-width: 0.5 !important;
+}
+
+/* Style Mermaid arrows/edges and text to be visible in sequence diagram */
+#sequence-mermaid svg path[stroke],
+#sequence-mermaid svg line[stroke],
+#sequence-mermaid svg .messageLine0,
+#sequence-mermaid svg .messageLine1 {
+    stroke: #ffffff !important;
+    stroke-width: 2 !important;
+}
+
+#sequence-mermaid svg marker path {
+    fill: #ffffff !important;
+    stroke: #333 !important;
+    stroke-width: 0.5 !important;
+}
+
+/* Make text labels visible in sequence diagram */
+#sequence-mermaid svg text,
+#sequence-mermaid svg .messageText,
+#sequence-mermaid svg .noteText {
+    fill: #ffffff !important;
+    color: #ffffff !important;
+}
+
+#sequence-mermaid svg .actor,
+#sequence-mermaid svg .participant {
+    fill: #e3f2fd !important;
+    stroke: #2196F3 !important;
+}
+
+/* Style Mermaid arrows/edges to be white in flowchart diagram (text stays black) */
+#flowchart-mermaid svg path[stroke],
+#flowchart-mermaid svg line[stroke],
+#flowchart-mermaid svg .edge-thickness-normal,
+#flowchart-mermaid svg .flowchart-link {
+    stroke: #ffffff !important;
+}
+
+#flowchart-mermaid svg marker path {
+    fill: #ffffff !important;
+    stroke: #333 !important;
+    stroke-width: 0.5 !important;
+}
+
+/* Keep text black in flowchart diagram */
+#flowchart-mermaid svg text,
+#flowchart-mermaid svg .nodeLabel {
+    fill: #000000 !important;
+    color: #000000 !important;
+}
+
+/* Style Mermaid arrows/edges to be white in structure diagram (text stays black) */
+#structure-mermaid svg path[stroke],
+#structure-mermaid svg line[stroke],
+#structure-mermaid svg .edge-thickness-normal,
+#structure-mermaid svg .flowchart-link {
+    stroke: #ffffff !important;
+}
+
+#structure-mermaid svg marker path {
+    fill: #ffffff !important;
+    stroke: #333 !important;
+    stroke-width: 0.5 !important;
+}
+
+/* Keep text black in structure diagram */
+#structure-mermaid svg text,
+#structure-mermaid svg .nodeLabel {
+    fill: #000000 !important;
+    color: #000000 !important;
+}
+
 .diagram-container .mermaid {
     width: 100%;
     min-height: 300px;
