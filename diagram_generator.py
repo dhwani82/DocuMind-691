@@ -812,8 +812,111 @@ class DiagramGenerator:
         # Replace spaces, dots, dashes with underscores, and remove special chars
         return name.replace(' ', '_').replace('.', '_').replace('-', '_').replace('/', '_')
     
+    def _is_valid_participant(self, name: str) -> bool:
+        """Check if a name represents a valid participant (function or class).
+        
+        Filters out:
+        - Variables (not functions/classes)
+        - Attribute accesses that aren't method calls
+        - Simple expressions
+        
+        Args:
+            name: Name to check
+            
+        Returns:
+            True if name is a valid function or class
+        """
+        # Check if it's a known function (top-level or nested)
+        if any(f['name'] == name for f in self.functions):
+            return True
+        
+        # Check if it's a known class
+        if any(c['name'] == name for c in self.classes):
+            return True
+        
+        # For names with dots, check if the first part is a class
+        # (e.g., "ClassName.method" - ClassName is the participant)
+        if '.' in name:
+            parts = name.split('.')
+            if len(parts) >= 1:
+                first_part = parts[0]
+                # Check if the first part is a known class
+                if any(c['name'] == first_part for c in self.classes):
+                    return True
+                # Check if the first part is a known function (for function.method patterns)
+                if any(f['name'] == first_part for f in self.functions):
+                    return True
+        
+        # Not a valid participant (likely a variable or invalid reference)
+        return False
+    
+    def _is_valid_call(self, call: Dict) -> bool:
+        """Check if a call should be included in the sequence diagram.
+        
+        Filters out:
+        - Calls that are just attribute accesses (not method calls)
+        - Calls where callee is just a variable (not a function/class)
+        - Simple expressions
+        - Calls where neither caller nor callee are valid participants
+        
+        Args:
+            call: Call dictionary with 'caller', 'callee', 'line'
+            
+        Returns:
+            True if call should be included
+        """
+        callee = call.get('callee', '')
+        caller = call.get('caller', '')
+        
+        # Skip empty callees
+        if not callee:
+            return False
+        
+        # Both caller and callee must be valid participants
+        caller_valid = self._is_valid_participant(caller.split('.')[0] if '.' in caller else caller)
+        callee_valid = self._is_valid_participant(callee.split('.')[0] if '.' in callee else callee)
+        
+        if not caller_valid or not callee_valid:
+            return False
+        
+        # For method calls (with dot notation), verify it's a real method call
+        if '.' in callee:
+            parts = callee.split('.')
+            if len(parts) >= 2:
+                class_or_obj_name = parts[0]
+                method_name = parts[1]
+                
+                # Check if it's a method on a known class
+                if any(c['name'] == class_or_obj_name for c in self.classes):
+                    # Prefer to verify method exists, but include if class exists
+                    for cls in self.classes:
+                        if cls['name'] == class_or_obj_name:
+                            methods = cls.get('methods', [])
+                            # If method exists, definitely include
+                            if any(m['name'] == method_name for m in methods):
+                                return True
+                    # Class exists, include the call (method might be dynamically added)
+                    return True
+                
+                # For external calls (e.g., obj.method()), only include if obj is from a known class
+                # This is a heuristic - we're more conservative
+                return False
+        
+        # For simple function calls, check if callee is a known function
+        if callee in [f['name'] for f in self.functions]:
+            return True
+        
+        # If we get here, it's likely not a valid call
+        return False
+    
     def generate_sequence_diagram(self) -> str:
         """Generate Mermaid sequence diagram showing function call sequences.
+        
+        This method filters out noise to produce clean, readable diagrams:
+        - Only includes actual functions and classes as participants (not variables)
+        - Filters out attribute accesses, assignments, and simple expressions
+        - Limits participants and calls for large codebases
+        - Focuses on meaningful interactions between functions/classes
         
         For SQL: shows data flow through foreign key relationships.
         
@@ -845,18 +948,22 @@ class DiagramGenerator:
         for cls in self.classes:
             participants[cls['name']] = 'class'
         
-        # Add callers and callees from function calls
+        # Filter and add callers and callees from function calls
+        # Only include if they're valid participants (functions/classes, not variables)
         for call in self.function_calls:
+            if not self._is_valid_call(call):
+                continue
+                
             caller = call['caller']
             callee = call['callee']
             
             # Extract class/function name from caller
             if '.' in caller:
                 caller_name = caller.split('.')[0]
-                if caller_name not in participants:
+                if caller_name not in participants and self._is_valid_participant(caller_name):
                     participants[caller_name] = 'class' if any(c['name'] == caller_name for c in self.classes) else 'function'
             else:
-                if caller not in participants:
+                if caller not in participants and self._is_valid_participant(caller):
                     participants[caller] = 'function'
             
             # Extract class/function name from callee
@@ -864,20 +971,36 @@ class DiagramGenerator:
                 callee_parts = callee.split('.')
                 if len(callee_parts) >= 2:
                     callee_name = callee_parts[0]
-                    if callee_name not in participants:
+                    if callee_name not in participants and self._is_valid_participant(callee_name):
                         participants[callee_name] = 'class' if any(c['name'] == callee_name for c in self.classes) else 'function'
             else:
-                if callee not in participants:
+                if callee not in participants and self._is_valid_participant(callee):
                     participants[callee] = 'function'
         
         # Add participants with descriptive labels
         participant_list = sorted(list(participants.keys()))
+        
+        # For large codebases, limit participants more aggressively
+        # Only include the most important participants (entry points, main classes/functions)
+        if len(participant_list) > 10:
+            # Prioritize: main/entry functions, then classes, then other functions
+            prioritized = []
+            for p in participant_list:
+                p_lower = p.lower()
+                if any(keyword in p_lower for keyword in ['main', 'run', 'start', 'entry', 'app', 'init']):
+                    prioritized.insert(0, p)
+                elif participants.get(p) == 'class':
+                    prioritized.append(p)
+                else:
+                    prioritized.append(p)
+            participant_list = prioritized[:10]  # Limit to 10 for readability
+        
         participant_map = {}  # short name -> full name for diagram
         
         # Create better short names (like M, SD, PC in the example)
         used_short_names = set()
         
-        for i, participant in enumerate(participant_list[:12]):  # Limit to 12 participants
+        for i, participant in enumerate(participant_list):
             # Create short alias - try to use meaningful abbreviations
             short_name = None
             
@@ -928,8 +1051,12 @@ class DiagramGenerator:
         # Build comprehensive call sequence with context
         all_calls = []
         
-        # Process function calls
+        # Process function calls - filter out invalid ones
         for call in self.function_calls:
+            # Skip invalid calls (variables, assignments, simple expressions)
+            if not self._is_valid_call(call):
+                continue
+                
             caller = call['caller']
             callee = call['callee']
             line = call['line']
@@ -954,8 +1081,11 @@ class DiagramGenerator:
                 callee_participant = callee
                 callee_method = callee
             
-            # Only include if both participants are in our list
-            if caller_participant in participant_list and callee_participant in participant_list:
+            # Only include if both participants are in our list and are valid
+            if (caller_participant in participant_list and 
+                callee_participant in participant_list and
+                self._is_valid_participant(caller_participant) and
+                self._is_valid_participant(callee_participant)):
                 all_calls.append({
                     'caller': caller_participant,
                     'target': callee_participant,
@@ -964,7 +1094,7 @@ class DiagramGenerator:
                     'type': 'function_call'
                 })
         
-        # Process method calls
+        # Process method calls - these are generally valid
         for method_call in self.method_calls:
             caller = method_call['caller']
             target_class = method_call['class_name']
@@ -976,7 +1106,11 @@ class DiagramGenerator:
             else:
                 caller_participant = caller
             
-            if caller_participant in participant_list and target_class in participant_list:
+            # Only include if both participants are valid and in our list
+            if (caller_participant in participant_list and 
+                target_class in participant_list and
+                self._is_valid_participant(caller_participant) and
+                self._is_valid_participant(target_class)):
                 all_calls.append({
                     'caller': caller_participant,
                     'target': target_class,
@@ -1257,7 +1391,7 @@ class DiagramGenerator:
             # Generate flowchart based on available code elements
             return self._generate_structure_based_flowchart()
         
-        # Find function with most control flow
+        # Find function with most control flow (including function calls)
         funcs_with_flow = []
         for func in funcs_to_process:
             func_name = func['name']
@@ -1270,7 +1404,11 @@ class DiagramGenerator:
             funcs_with_flow.sort(key=lambda x: x[1], reverse=True)
             return self._generate_single_flowchart(funcs_with_flow[0][0])
         else:
-            # No control flow found, show simple message
+            # No control flow found - check if there are any functions with calls
+            # If a function exists but has no control flow, still show a basic flowchart
+            if funcs_to_process:
+                return self._generate_single_flowchart(funcs_to_process[0])
+            # No functions at all
             return "```mermaid\nflowchart TD\n    A[Functions found] --> B[No control flow structures detected]\n    B --> C[Add if/else, loops, etc. to see flowcharts]\n```"
     
     def _generate_javascript_flowchart(self) -> str:
@@ -1365,8 +1503,34 @@ class DiagramGenerator:
         lines.append("```")
         return "\n".join(lines)
     
+    def _add_call_group_to_flowchart(self, lines: List[str], call_group: List[Dict], current_node: str, start_node_id: int) -> str:
+        """Add a group of consecutive function calls to flowchart - show only essential ones."""
+        # Limit to 3-4 most important calls to keep flowchart concise
+        important_calls = call_group[:4] if len(call_group) > 4 else call_group
+        
+        last_node = current_node
+        for i, call in enumerate(important_calls):
+            action_label = call.get('action_label', call.get('call_label', 'Call function'))
+            # Truncate long labels
+            if len(action_label) > 25:
+                action_label = action_label[:22] + "..."
+            
+            call_id = f"CALL{start_node_id + i}"
+            lines.append(f"    {last_node} --> {call_id}[\"⚙️ {action_label}\"]")
+            lines.append(f"    style {call_id} fill:#e1bee7,stroke:#9c27b0,stroke-width:2px")
+            last_node = call_id
+        
+        # If there were more calls, indicate with ellipsis
+        if len(call_group) > 4:
+            more_id = f"CALL_MORE{start_node_id + len(important_calls)}"
+            lines.append(f"    {last_node} --> {more_id}[\"⚙️ ... {len(call_group) - 4} more calls\"]")
+            lines.append(f"    style {more_id} fill:#f3e5f5,stroke:#9c27b0,stroke-width:1px")
+            last_node = more_id
+        
+        return last_node
+    
     def _generate_single_flowchart(self, func_info: Dict) -> str:
-        """Generate flowchart for a single function."""
+        """Generate concise flowchart for a single function showing essential flow."""
         func_name = func_info['name']
         lines = ["```mermaid", "flowchart TD"]
         
@@ -1378,109 +1542,210 @@ class DiagramGenerator:
         lines.append(f"    {start_id}([\"▶️ Start: {func_name}\"])")
         lines.append(f"    style {start_id} fill:#e8f4f8,stroke:#2196F3,stroke-width:3px")
         
-        # Process control flow structures
+        # Process control flow structures - optimize for concise representation
         node_id = 1
         current_node = start_id
+        
+        # Group consecutive function calls to avoid clutter
+        call_group = []
         
         for flow in sorted(func_flow, key=lambda x: x.get('line', 0)):
             flow_type = flow.get('type')
             
-            if flow_type == 'if':
-                condition = flow.get('condition', 'condition')
-                # Truncate long conditions
-                if len(condition) > 30:
-                    condition = condition[:27] + "..."
-                if_id = f"IF{node_id}"
-                true_id = f"TRUE{node_id}"
-                false_id = f"FALSE{node_id}"
-                end_if_id = f"ENDIF{node_id}"
+            if flow_type == 'call':
+                # Collect consecutive calls to group them
+                call_group.append(flow)
+            else:
+                # Process any accumulated calls first
+                if call_group:
+                    current_node = self._add_call_group_to_flowchart(lines, call_group, current_node, node_id)
+                    node_id += min(len(call_group), 4) + (1 if len(call_group) > 4 else 0)
+                    call_group = []
                 
-                lines.append(f"    {current_node} --> {if_id}{{\"{condition}\"}}")
-                lines.append(f"    style {if_id} fill:#fff4e6,stroke:#ff9800,stroke-width:2px")
-                lines.append(f"    {if_id} -->|\"✅ True\"| {true_id}[\"📝 If Body\"]")
-                lines.append(f"    style {true_id} fill:#e8f5e9,stroke:#4caf50")
+                # Process non-call flow structures
+                if flow_type == 'with':
+                    # With statement - concise: Enter → Exit
+                    items = flow.get('items', [])
+                    if items:
+                        with_label = items[0].get('label', 'Enter context')
+                        context_name = with_label.replace('Enter ', '') if with_label.startswith('Enter ') else with_label
+                    else:
+                        context_name = "context"
+                        with_label = f"Enter {context_name}"
+                    
+                    # Truncate long labels
+                    if len(context_name) > 20:
+                        context_name = context_name[:17] + "..."
+                    
+                    enter_id = f"WITH{node_id}"
+                    exit_id = f"WITH_EXIT{node_id}"
+                    
+                    lines.append(f"    {current_node} --> {enter_id}[\"🔓 {with_label}\"]")
+                    lines.append(f"    style {enter_id} fill:#fff3e0,stroke:#ff9800,stroke-width:2px")
+                    lines.append(f"    {enter_id} --> {exit_id}[\"🔒 Exit {context_name}\"]")
+                    lines.append(f"    style {exit_id} fill:#fff3e0,stroke:#ff9800,stroke-width:2px")
+                    current_node = exit_id
+                    node_id += 1
                 
-                if flow.get('has_else'):
-                    lines.append(f"    {if_id} -->|\"❌ False\"| {false_id}[\"📝 Else Body\"]")
-                    lines.append(f"    style {false_id} fill:#e8f5e9,stroke:#4caf50")
-                    lines.append(f"    {true_id} --> {end_if_id}[\"➡️ Continue\"]")
-                    lines.append(f"    {false_id} --> {end_if_id}")
-                else:
-                    lines.append(f"    {if_id} -->|\"❌ False\"| {end_if_id}[\"➡️ Continue\"]")
-                    lines.append(f"    {true_id} --> {end_if_id}")
+                elif flow_type == 'try':
+                    # Try/except block - concise representation
+                    exceptions = flow.get('exceptions', ['Exception'])
+                    has_finally = flow.get('has_finally', False)
+                    end_try_id = f"END_TRY{node_id}"
+                    
+                    # Limit to 4 exception types to keep it concise
+                    if len(exceptions) > 4:
+                        exceptions = exceptions[:3] + ['...']
+                    
+                    try_id = f"TRY{node_id}"
+                    lines.append(f"    {current_node} --> {try_id}[\"⚠️ Try\"]")
+                    lines.append(f"    style {try_id} fill:#fff3e0,stroke:#ff9800,stroke-width:2px")
+                    
+                    # Add exception handlers - simplified
+                    except_nodes = []
+                    for i, exc_type in enumerate(exceptions):
+                        if exc_type == '...':
+                            except_id = f"EXCEPT_MORE{node_id}"
+                            lines.append(f"    {try_id} -->|\"❌ ...\"| {except_id}[\"⚠️ More exceptions\"]")
+                            lines.append(f"    style {except_id} fill:#ffebee,stroke:#f44336,stroke-width:2px")
+                            except_nodes.append(except_id)
+                        else:
+                            except_id = f"EXCEPT{i+1}_{node_id}"
+                            except_label = f"Except {exc_type}"
+                            # Truncate long exception names
+                            if len(except_label) > 20:
+                                except_label = except_label[:17] + "..."
+                            lines.append(f"    {try_id} -->|\"❌ {exc_type}\"| {except_id}[\"⚠️ {except_label}\"]")
+                            lines.append(f"    style {except_id} fill:#ffebee,stroke:#f44336,stroke-width:2px")
+                            except_nodes.append(except_id)
+                    
+                    # Merge exception handlers
+                    if except_nodes:
+                        if has_finally:
+                            finally_id = f"FINALLY{node_id}"
+                            lines.append(f"    {try_id} -->|\"✅ Success\"| {finally_id}[\"✅ Finally\"]")
+                            lines.append(f"    style {finally_id} fill:#e1f5fe,stroke:#03a9f4,stroke-width:2px")
+                            for except_node in except_nodes:
+                                lines.append(f"    {except_node} --> {finally_id}")
+                            lines.append(f"    {finally_id} --> {end_try_id}[\"➡️ Continue\"]")
+                        else:
+                            lines.append(f"    {try_id} -->|\"✅ Success\"| {end_try_id}[\"➡️ Continue\"]")
+                            for except_node in except_nodes:
+                                lines.append(f"    {except_node} --> {end_try_id}")
+                    else:
+                        # No exception handlers
+                        if has_finally:
+                            finally_id = f"FINALLY{node_id}"
+                            lines.append(f"    {try_id} --> {finally_id}[\"✅ Finally\"]")
+                            lines.append(f"    style {finally_id} fill:#e1f5fe,stroke:#03a9f4,stroke-width:2px")
+                            lines.append(f"    {finally_id} --> {end_try_id}[\"➡️ Continue\"]")
+                        else:
+                            lines.append(f"    {try_id} --> {end_try_id}[\"➡️ Continue\"]")
+                    
+                    lines.append(f"    style {end_try_id} fill:#f3e5f5,stroke:#9c27b0")
+                    current_node = end_try_id
+                    node_id += 1
                 
-                lines.append(f"    style {end_if_id} fill:#f3e5f5,stroke:#9c27b0")
-                current_node = end_if_id
-                node_id += 1
-            
-            elif flow_type == 'for':
-                target = flow.get('target', 'item')
-                iter_expr = flow.get('iter', 'iterable')
-                # Truncate long expressions
-                if len(iter_expr) > 25:
-                    iter_expr = iter_expr[:22] + "..."
-                loop_id = f"LOOP{node_id}"
-                body_id = f"BODY{node_id}"
-                end_loop_id = f"ENDLOOP{node_id}"
+                elif flow_type == 'if':
+                    condition = flow.get('condition', 'condition')
+                    # Truncate long conditions
+                    if len(condition) > 30:
+                        condition = condition[:27] + "..."
+                    if_id = f"IF{node_id}"
+                    true_id = f"TRUE{node_id}"
+                    false_id = f"FALSE{node_id}"
+                    end_if_id = f"ENDIF{node_id}"
+                    
+                    lines.append(f"    {current_node} --> {if_id}{{\"{condition}\"}}")
+                    lines.append(f"    style {if_id} fill:#fff4e6,stroke:#ff9800,stroke-width:2px")
+                    lines.append(f"    {if_id} -->|\"✅ True\"| {true_id}[\"📝 If Body\"]")
+                    lines.append(f"    style {true_id} fill:#e8f5e9,stroke:#4caf50")
+                    
+                    if flow.get('has_else'):
+                        lines.append(f"    {if_id} -->|\"❌ False\"| {false_id}[\"📝 Else Body\"]")
+                        lines.append(f"    style {false_id} fill:#e8f5e9,stroke:#4caf50")
+                        lines.append(f"    {true_id} --> {end_if_id}[\"➡️ Continue\"]")
+                        lines.append(f"    {false_id} --> {end_if_id}")
+                    else:
+                        lines.append(f"    {if_id} -->|\"❌ False\"| {end_if_id}[\"➡️ Continue\"]")
+                        lines.append(f"    {true_id} --> {end_if_id}")
+                    
+                    lines.append(f"    style {end_if_id} fill:#f3e5f5,stroke:#9c27b0")
+                    current_node = end_if_id
+                    node_id += 1
                 
-                lines.append(f"    {current_node} --> {loop_id}{{\"🔄 for {target} in {iter_expr}\"}}")
-                lines.append(f"    style {loop_id} fill:#fff4e6,stroke:#ff9800,stroke-width:2px")
-                lines.append(f"    {loop_id} -->|\"✅ Has items\"| {body_id}[\"📝 Loop Body\"]")
-                lines.append(f"    style {body_id} fill:#e8f5e9,stroke:#4caf50")
-                lines.append(f"    {loop_id} -->|\"❌ No items\"| {end_loop_id}[\"➡️ Continue\"]")
-                lines.append(f"    {body_id} -->|\"↩️ Loop back\"| {loop_id}")
-                lines.append(f"    style {end_loop_id} fill:#f3e5f5,stroke:#9c27b0")
+                elif flow_type == 'for':
+                    target = flow.get('target', 'item')
+                    iter_expr = flow.get('iter', 'iterable')
+                    # Truncate long expressions
+                    if len(iter_expr) > 25:
+                        iter_expr = iter_expr[:22] + "..."
+                    loop_id = f"LOOP{node_id}"
+                    body_id = f"BODY{node_id}"
+                    end_loop_id = f"ENDLOOP{node_id}"
+                    
+                    lines.append(f"    {current_node} --> {loop_id}{{\"🔄 for {target} in {iter_expr}\"}}")
+                    lines.append(f"    style {loop_id} fill:#fff4e6,stroke:#ff9800,stroke-width:2px")
+                    lines.append(f"    {loop_id} -->|\"✅ Has items\"| {body_id}[\"📝 Loop Body\"]")
+                    lines.append(f"    style {body_id} fill:#e8f5e9,stroke:#4caf50")
+                    lines.append(f"    {loop_id} -->|\"❌ No items\"| {end_loop_id}[\"➡️ Continue\"]")
+                    lines.append(f"    {body_id} -->|\"↩️ Loop back\"| {loop_id}")
+                    lines.append(f"    style {end_loop_id} fill:#f3e5f5,stroke:#9c27b0")
+                    
+                    current_node = end_loop_id
+                    node_id += 1
                 
-                current_node = end_loop_id
-                node_id += 1
-            
-            elif flow_type == 'while':
-                condition = flow.get('condition', 'condition')
-                # Truncate long conditions
-                if len(condition) > 30:
-                    condition = condition[:27] + "..."
-                loop_id = f"WHILE{node_id}"
-                body_id = f"BODY{node_id}"
-                end_while_id = f"ENDWHILE{node_id}"
+                elif flow_type == 'while':
+                    condition = flow.get('condition', 'condition')
+                    # Truncate long conditions
+                    if len(condition) > 30:
+                        condition = condition[:27] + "..."
+                    loop_id = f"WHILE{node_id}"
+                    body_id = f"BODY{node_id}"
+                    end_while_id = f"ENDWHILE{node_id}"
+                    
+                    lines.append(f"    {current_node} --> {loop_id}{{\"🔄 {condition}\"}}")
+                    lines.append(f"    style {loop_id} fill:#fff4e6,stroke:#ff9800,stroke-width:2px")
+                    lines.append(f"    {loop_id} -->|\"✅ True\"| {body_id}[\"📝 While Body\"]")
+                    lines.append(f"    style {body_id} fill:#e8f5e9,stroke:#4caf50")
+                    lines.append(f"    {loop_id} -->|\"❌ False\"| {end_while_id}[\"➡️ Continue\"]")
+                    lines.append(f"    {body_id} -->|\"↩️ Loop back\"| {loop_id}")
+                    lines.append(f"    style {end_while_id} fill:#f3e5f5,stroke:#9c27b0")
+                    
+                    current_node = end_while_id
+                    node_id += 1
                 
-                lines.append(f"    {current_node} --> {loop_id}{{\"🔄 {condition}\"}}")
-                lines.append(f"    style {loop_id} fill:#fff4e6,stroke:#ff9800,stroke-width:2px")
-                lines.append(f"    {loop_id} -->|\"✅ True\"| {body_id}[\"📝 While Body\"]")
-                lines.append(f"    style {body_id} fill:#e8f5e9,stroke:#4caf50")
-                lines.append(f"    {loop_id} -->|\"❌ False\"| {end_while_id}[\"➡️ Continue\"]")
-                lines.append(f"    {body_id} -->|\"↩️ Loop back\"| {loop_id}")
-                lines.append(f"    style {end_while_id} fill:#f3e5f5,stroke:#9c27b0")
+                elif flow_type == 'return':
+                    return_id = f"RETURN{node_id}"
+                    if flow.get('has_value'):
+                        lines.append(f"    {current_node} --> {return_id}([\"↩️ Return with value\"])")
+                    else:
+                        lines.append(f"    {current_node} --> {return_id}([\"↩️ Return\"])")
+                    lines.append(f"    style {return_id} fill:#ffebee,stroke:#f44336,stroke-width:2px")
+                    lines.append(f"    {return_id} --> END([\"🏁 End\"])")
+                    lines.append(f"    style END fill:#e8f4f8,stroke:#2196F3,stroke-width:3px")
+                    current_node = None
+                    node_id += 1
+                    break
                 
-                current_node = end_while_id
-                node_id += 1
-            
-            elif flow_type == 'return':
-                return_id = f"RETURN{node_id}"
-                if flow.get('has_value'):
-                    lines.append(f"    {current_node} --> {return_id}([\"↩️ Return with value\"])")
-                else:
-                    lines.append(f"    {current_node} --> {return_id}([\"↩️ Return\"])")
-                lines.append(f"    style {return_id} fill:#ffebee,stroke:#f44336,stroke-width:2px")
-                lines.append(f"    {return_id} --> END([\"🏁 End\"])")
-                lines.append(f"    style END fill:#e8f4f8,stroke:#2196F3,stroke-width:3px")
-                current_node = None
-                node_id += 1
-                break
-            
-            elif flow_type == 'break':
-                break_id = f"BREAK{node_id}"
-                lines.append(f"    {current_node} --> {break_id}([Break])")
-                lines.append(f"    {break_id} --> END([End])")
-                current_node = None
-                node_id += 1
-                break
-            
-            elif flow_type == 'continue':
-                continue_id = f"CONTINUE{node_id}"
-                lines.append(f"    {current_node} --> {continue_id}([Continue])")
-                # Continue goes back to loop start - simplified for now
-                current_node = continue_id
-                node_id += 1
+                elif flow_type == 'break':
+                    break_id = f"BREAK{node_id}"
+                    lines.append(f"    {current_node} --> {break_id}([Break])")
+                    lines.append(f"    {break_id} --> END([End])")
+                    current_node = None
+                    node_id += 1
+                    break
+                
+                elif flow_type == 'continue':
+                    continue_id = f"CONTINUE{node_id}"
+                    lines.append(f"    {current_node} --> {continue_id}([Continue])")
+                    # Continue goes back to loop start - simplified for now
+                    current_node = continue_id
+                    node_id += 1
+        
+        # Process any remaining call group
+        if call_group:
+            current_node = self._add_call_group_to_flowchart(lines, call_group, current_node, node_id)
         
         # End node
         if current_node:

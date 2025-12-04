@@ -212,7 +212,7 @@ Format as clean, professional Markdown with clear sections and subsections."""
                 func_info = self._find_function_info(func_name, parse_result)
                 
                 if func_info and not self._has_docstring(lines, i):
-                    docstring = self._create_function_docstring(func_info, indent + 4)
+                    docstring = self._create_function_docstring(func_info, indent + 4, parse_result)
                     result_lines.append(docstring)
             
             # Class definition
@@ -755,13 +755,61 @@ This project is a {', '.join(detected_languages) if detected_languages else 'mul
         next_line = lines[def_line + 1].strip()
         return next_line.startswith('"""') or next_line.startswith("'''")
     
-    def _create_function_docstring(self, func_info: Dict, indent: int) -> str:
-        """Create PEP 257 compliant docstring for function."""
+    def _create_function_docstring(self, func_info: Dict, indent: int, parse_result: Dict[str, Any] = None) -> str:
+        """Create PEP 257 compliant docstring for function with detailed explanations."""
         indent_str = ' ' * indent
         docstring = f'{indent_str}"""'
         
-        # Summary
-        docstring += f"{func_info['name'].replace('_', ' ').title()}."
+        func_name = func_info['name']
+        
+        # Analyze function behavior from control flow and calls
+        description = self._analyze_function_behavior(func_info, parse_result)
+        
+        # Summary - use analyzed description or generate from name
+        if description:
+            # Split description into main description and exception handling if needed
+            if "Handles" in description:
+                # Split at "Handles" to separate main description from exception info
+                parts = description.split("Handles", 1)
+                main_desc = parts[0].strip().rstrip(',').rstrip('.').rstrip('and').strip()
+                if len(parts) > 1:
+                    exception_desc = "Handles " + parts[1].strip().rstrip('.')
+                    docstring += f"\n{indent_str}{main_desc}."
+                    docstring += f"\n{indent_str}{exception_desc}."
+                else:
+                    docstring += f"\n{indent_str}{description}"
+            else:
+                # Remove trailing period if already present
+                clean_desc = description.rstrip('.')
+                docstring += f"\n{indent_str}{clean_desc}."
+        else:
+            # Generate from function name with better descriptions
+            name_words = func_name.replace('_', ' ').split()
+            func_name_lower = func_name.lower()
+            
+            # Check function name patterns for common operations
+            if func_name_lower == 'add':
+                docstring += f"\n{indent_str}Returns the sum of two numbers."
+            elif func_name_lower in ['subtract', 'sub']:
+                docstring += f"\n{indent_str}Returns the difference of two numbers."
+            elif func_name_lower in ['multiply', 'mul']:
+                docstring += f"\n{indent_str}Returns the product of two numbers."
+            elif func_name_lower in ['divide', 'div']:
+                docstring += f"\n{indent_str}Returns the quotient of two numbers."
+            elif len(name_words) > 1:
+                action = name_words[0].lower()
+                if action in ['get', 'fetch', 'retrieve', 'obtain', 'take']:
+                    docstring += f"\n{indent_str}Retrieves {name_words[1]}."
+                elif action in ['set', 'update', 'modify', 'change']:
+                    docstring += f"\n{indent_str}Sets or updates {name_words[1]}."
+                elif action in ['create', 'make', 'build', 'generate']:
+                    docstring += f"\n{indent_str}Creates {name_words[1]}."
+                elif action in ['process', 'handle', 'execute', 'run']:
+                    docstring += f"\n{indent_str}Processes {name_words[1]}."
+                else:
+                    docstring += f"\n{indent_str}{func_name.replace('_', ' ').title()}."
+            else:
+                docstring += f"\n{indent_str}{func_name.replace('_', ' ').title()}."
         
         # Parameters
         params = func_info.get('parameters', [])
@@ -770,15 +818,332 @@ This project is a {', '.join(detected_languages) if detected_languages else 'mul
             docstring += f"{indent_str}Args:\n"
             for param in params:
                 if param != 'self':
-                    docstring += f"{indent_str}    {param}: Description of {param}.\n"
+                    # Generate better parameter descriptions
+                    param_desc = self._generate_parameter_description(param, func_info, parse_result)
+                    docstring += f"{indent_str}    {param}: {param_desc}\n"
         
         # Returns
-        if func_info.get('returns'):
+        returns_info = self._analyze_return_behavior(func_info, parse_result)
+        if returns_info:
+            docstring += f"\n{indent_str}Returns:\n"
+            docstring += f"{indent_str}    {returns_info}\n"
+        elif func_info.get('returns'):
             docstring += f"\n{indent_str}Returns:\n"
             docstring += f"{indent_str}    {func_info['returns']}: Description of return value.\n"
         
+        # Raises section for exception handling
+        raises_info = self._analyze_exceptions(func_info, parse_result)
+        if raises_info:
+            docstring += f"\n{indent_str}Raises:\n"
+            for exc_info in raises_info:
+                docstring += f"{indent_str}    {exc_info}\n"
+        
         docstring += f'{indent_str}"""'
         return docstring
+    
+    def _analyze_function_behavior(self, func_info: Dict, parse_result: Dict[str, Any]) -> str:
+        """Analyze function code to generate descriptive summary."""
+        if not parse_result:
+            return None
+        
+        func_name = func_info['name']
+        control_flow = parse_result.get('control_flow', [])
+        function_calls = parse_result.get('function_calls', [])
+        
+        # Get control flow for this function
+        func_flow = [cf for cf in control_flow if cf.get('function') == func_name]
+        func_calls = [call for call in function_calls if call.get('caller') == func_name]
+        
+        # Also get method calls
+        method_calls = parse_result.get('method_calls', [])
+        func_method_calls = [call for call in method_calls if call.get('caller') == func_name]
+        
+        main_action = None
+        secondary_actions = []
+        exception_handling = []
+        
+        # Analyze with statements first (context managers)
+        with_statements = [cf for cf in func_flow if cf.get('type') == 'with']
+        for with_stmt in with_statements:
+            items = with_stmt.get('items', [])
+            if items:
+                context = items[0].get('context', '').lower()
+                if 'microphone' in context or 'mic' in context:
+                    main_action = "Takes microphone input from the user"
+                elif 'file' in context or 'open' in context:
+                    main_action = "Opens and manages file resources"
+                elif 'connection' in context or 'socket' in context:
+                    main_action = "Manages network connections"
+        
+        # Analyze function calls to understand what the function does
+        unique_calls = set()
+        for call in func_calls:
+            callee = call.get('callee', '').lower()
+            unique_calls.add(callee)
+        
+        # Also add method calls
+        for call in func_method_calls:
+            class_name = call.get('class_name', '')
+            method = call.get('method', '')
+            if class_name and method:
+                unique_calls.add(f"{class_name}.{method}".lower())
+            elif method:
+                unique_calls.add(method.lower())
+        
+        # Determine main action from function calls
+        if not main_action:
+            if any('listen' in c for c in unique_calls):
+                main_action = "Takes microphone input from the user"
+            elif any('recognize' in c for c in unique_calls):
+                if not main_action:
+                    main_action = "Recognizes speech input"
+            elif any('speak' in c or 'say' in c for c in unique_calls):
+                main_action = "Speaks output to the user"
+            elif any('read' in c for c in unique_calls):
+                main_action = "Reads data from a source"
+            elif any('write' in c for c in unique_calls):
+                main_action = "Writes data to a destination"
+            elif any('print' in c for c in unique_calls):
+                secondary_actions.append("prints output")
+        
+        # Analyze return behavior - skip for simple math functions (handled in fallback)
+        return_statements = [cf for cf in func_flow if cf.get('type') == 'return']
+        if return_statements and func_name.lower() not in ['add', 'subtract', 'multiply', 'divide', 'sub', 'mul', 'div']:
+            has_value = any(rs.get('has_value') for rs in return_statements)
+            if has_value:
+                if 'recognize' in str(unique_calls).lower() or 'text' in func_name.lower() or 'command' in func_name.lower():
+                    secondary_actions.append("returns it as text")
+                else:
+                    secondary_actions.append("returns the result")
+        
+        # Analyze try/except blocks for exception handling description
+        try_blocks = [cf for cf in func_flow if cf.get('type') == 'try']
+        if try_blocks:
+            all_exceptions = []
+            for try_block in try_blocks:
+                excs = try_block.get('exceptions', [])
+                all_exceptions.extend(excs)
+            
+            if all_exceptions:
+                unique_exceptions = [e for e in set(all_exceptions) if e != 'Exception']
+                if unique_exceptions:
+                    # Clean exception names (remove module prefix like "sr.")
+                    clean_exceptions = []
+                    for exc in unique_exceptions:
+                        # Extract just the exception class name (last part after dot)
+                        if '.' in exc:
+                            clean_exceptions.append(exc.split('.')[-1])
+                        else:
+                            clean_exceptions.append(exc)
+                    
+                    # Create natural exception description
+                    if len(clean_exceptions) == 1:
+                        exc_name = clean_exceptions[0]
+                        if 'timeout' in exc_name.lower():
+                            exception_handling.append("Handles timeout errors")
+                        elif 'value' in exc_name.lower() or 'unknown' in exc_name.lower():
+                            exception_handling.append("Handles recognition errors")
+                        elif 'request' in exc_name.lower():
+                            exception_handling.append("Handles request errors")
+                        else:
+                            exception_handling.append(f"Handles {exc_name}")
+                    elif len(clean_exceptions) == 2:
+                        # Format: "Handles UnknownValueError and RequestError"
+                        exc1 = clean_exceptions[0]
+                        exc2 = clean_exceptions[1]
+                        exception_handling.append(f"Handles {exc1} and {exc2}")
+                    else:
+                        # Format: "Handles A, B, and C"
+                        exception_handling.append(f"Handles {', '.join(clean_exceptions[:-1])}, and {clean_exceptions[-1]}")
+                else:
+                    exception_handling.append("Handles exceptions")
+        
+        # Build the description - prioritize main action, then return info, then exceptions
+        parts = []
+        if main_action:
+            parts.append(main_action)
+        
+        # Add return information if available
+        return_info = None
+        return_statements = [cf for cf in func_flow if cf.get('type') == 'return']
+        if return_statements:
+            has_value = any(rs.get('has_value') for rs in return_statements)
+            if has_value:
+                if 'recognize' in str(unique_calls).lower() or 'text' in func_name.lower() or 'command' in func_name.lower():
+                    return_info = "returns it as text"
+                else:
+                    return_info = "returns the result"
+        
+        if return_info:
+            parts.append(return_info)
+        
+        # Add exception handling at the end
+        if exception_handling:
+            parts.extend(exception_handling)
+        
+        if parts:
+            # For simple functions with just "returns the result", return None to use fallback
+            if len(parts) == 1 and parts[0] == "returns the result":
+                # Check if it's a simple math function - use fallback instead
+                if func_name.lower() in ['add', 'subtract', 'multiply', 'divide', 'sub', 'mul', 'div']:
+                    return None
+            
+            # Create a coherent sentence
+            if len(parts) == 1:
+                return parts[0] + "."
+            elif len(parts) == 2:
+                # Check if second part already starts with "Handles"
+                if parts[1].startswith("Handles"):
+                    return f"{parts[0]}. {parts[1]}."
+                else:
+                    return f"{parts[0]} and {parts[1]}."
+            else:
+                main = parts[0]
+                # Separate exception handling from other parts
+                exception_parts = [p for p in parts[1:] if p.startswith("Handles")]
+                other_parts = [p for p in parts[1:] if not p.startswith("Handles")]
+                
+                if other_parts:
+                    if len(other_parts) == 1:
+                        sentence = f"{main} and {other_parts[0]}."
+                    else:
+                        middle = ", ".join(other_parts[:-1])
+                        sentence = f"{main}, {middle}, and {other_parts[-1]}."
+                else:
+                    sentence = f"{main}."
+                
+                # Add exception handling as separate sentence
+                if exception_parts:
+                    if len(exception_parts) == 1:
+                        sentence += f" {exception_parts[0]}."
+                    else:
+                        sentence += f" {', '.join(exception_parts)}."
+                
+                return sentence
+        
+        return None
+    
+    def _generate_parameter_description(self, param: str, func_info: Dict, parse_result: Dict[str, Any]) -> str:
+        """Generate descriptive parameter documentation."""
+        param_lower = param.lower()
+        func_name_lower = func_info['name'].lower()
+        
+        # Common parameter patterns with context from function name
+        if param_lower == 'a' and ('add' in func_name_lower or 'sum' in func_name_lower or 'multiply' in func_name_lower):
+            return f"The first number to {func_info['name'].replace('_', ' ')}."
+        elif param_lower == 'b' and ('add' in func_name_lower or 'sum' in func_name_lower or 'multiply' in func_name_lower):
+            return f"The second number to {func_info['name'].replace('_', ' ')}."
+        elif param_lower in ['x', 'y', 'num', 'number', 'value', 'val']:
+            return f"The {param} value to process."
+        elif 'file' in param_lower or 'path' in param_lower:
+            return f"Path to the file to {func_info['name'].replace('_', ' ')}."
+        elif 'url' in param_lower:
+            return f"The URL to {func_info['name'].replace('_', ' ')}."
+        elif 'data' in param_lower or 'input' in param_lower:
+            return f"The input data to process."
+        elif 'output' in param_lower or 'result' in param_lower:
+            return f"The output result."
+        elif 'config' in param_lower or 'settings' in param_lower:
+            return f"Configuration settings."
+        elif 'timeout' in param_lower:
+            return f"Timeout duration in seconds."
+        elif 'source' in param_lower:
+            return f"The source to read from."
+        elif 'target' in param_lower or 'dest' in param_lower:
+            return f"The target destination."
+        else:
+            return f"The {param.replace('_', ' ')} parameter."
+    
+    def _analyze_return_behavior(self, func_info: Dict, parse_result: Dict[str, Any]) -> str:
+        """Analyze what the function returns."""
+        if not parse_result:
+            return None
+        
+        func_name = func_info['name']
+        control_flow = parse_result.get('control_flow', [])
+        func_flow = [cf for cf in control_flow if cf.get('function') == func_name]
+        
+        return_statements = [cf for cf in func_flow if cf.get('type') == 'return']
+        
+        if not return_statements:
+            return None
+        
+        # Check function name for clues
+        func_name_lower = func_name.lower()
+        if 'get' in func_name_lower or 'fetch' in func_name_lower or 'retrieve' in func_name_lower or 'take' in func_name_lower:
+            if 'text' in func_name_lower or 'speech' in func_name_lower or 'command' in func_name_lower:
+                return "str: The recognized text as a string, or None if recognition fails."
+            return "The retrieved value."
+        elif 'check' in func_name_lower or 'is' in func_name_lower or 'has' in func_name_lower:
+            return "bool: True if the condition is met, False otherwise."
+        elif 'calculate' in func_name_lower or 'compute' in func_name_lower or 'add' in func_name_lower or 'sum' in func_name_lower:
+            return "The calculated result."
+        elif 'create' in func_name_lower or 'make' in func_name_lower:
+            return "The created object or value."
+        elif 'process' in func_name_lower or 'handle' in func_name_lower:
+            return "The processed result."
+        
+        # Default based on return type annotation
+        if func_info.get('returns'):
+            return_type = func_info['returns']
+            if return_type == 'str':
+                return "str: The result as a string."
+            elif return_type == 'int':
+                return "int: The result as an integer."
+            elif return_type == 'bool':
+                return "bool: The boolean result."
+            elif return_type == 'list':
+                return "list: A list of results."
+            elif return_type == 'dict':
+                return "dict: A dictionary of results."
+            else:
+                return f"{return_type}: The result value."
+        
+        # Check if function can return None (has multiple return paths)
+        has_none_return = any(not rs.get('has_value') for rs in return_statements)
+        has_value_return = any(rs.get('has_value') for rs in return_statements)
+        
+        if has_none_return and has_value_return:
+            return "The function result, or None if an error occurs."
+        
+        return "The function result."
+    
+    def _analyze_exceptions(self, func_info: Dict, parse_result: Dict[str, Any]) -> List[str]:
+        """Analyze what exceptions the function handles/raises."""
+        if not parse_result:
+            return []
+        
+        func_name = func_info['name']
+        control_flow = parse_result.get('control_flow', [])
+        func_flow = [cf for cf in control_flow if cf.get('function') == func_name]
+        
+        try_blocks = [cf for cf in func_flow if cf.get('type') == 'try']
+        exceptions = []
+        seen_exceptions = set()
+        
+        for try_block in try_blocks:
+            excs = try_block.get('exceptions', [])
+            for exc in excs:
+                if exc not in seen_exceptions and exc != 'Exception':
+                    seen_exceptions.add(exc)
+                    # Clean exception name (remove module prefix)
+                    exc_name = exc.split('.')[-1] if '.' in exc else exc
+                    # Generate description for each exception
+                    exc_lower = exc_name.lower()
+                    if 'timeout' in exc_lower:
+                        exceptions.append(f"TimeoutError: If the operation times out.")
+                    elif 'value' in exc_lower or 'unknown' in exc_lower:
+                        exceptions.append(f"{exc_name}: If the input cannot be recognized or is invalid.")
+                    elif 'request' in exc_lower or 'connection' in exc_lower:
+                        exceptions.append(f"{exc_name}: If there is a network or request error.")
+                    elif 'file' in exc_lower or 'io' in exc_lower:
+                        exceptions.append(f"{exc_name}: If there is a file I/O error.")
+                    elif 'permission' in exc_lower or 'access' in exc_lower:
+                        exceptions.append(f"{exc_name}: If access is denied.")
+                    else:
+                        exceptions.append(f"{exc_name}: If an error occurs during execution.")
+        
+        return exceptions
     
     def _create_class_docstring(self, class_info: Dict, indent: int) -> str:
         """Create PEP 257 compliant docstring for class."""

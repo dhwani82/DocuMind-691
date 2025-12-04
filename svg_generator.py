@@ -96,7 +96,311 @@ class SVGFlowchartGenerator:
         for flow in flow_items:
             flow_type = flow.get('type')
             
-            if flow_type == 'if':
+            if flow_type == 'call':
+                # Function call - show as action block
+                action_label = flow.get('action_label', flow.get('call_label', 'Call function'))
+                # Truncate long labels
+                if len(action_label) > 30:
+                    action_label = action_label[:27] + "..."
+                
+                call_id = f'call_{node_counter}'
+                call_node = {
+                    'id': call_id,
+                    'type': 'process',
+                    'text': action_label,
+                    'x': 400,
+                    'y': current_y,
+                    'width': NODE_WIDTH,
+                    'height': NODE_HEIGHT
+                }
+                nodes.append(call_node)
+                node_map[call_id] = len(nodes) - 1
+                
+                edges.append({
+                    'from': current_node_id,
+                    'to': call_id,
+                    'label': None,
+                    'type': 'straight'
+                })
+                
+                current_node_id = call_id
+                current_y += NODE_SPACING_Y
+                node_counter += 1
+            
+            elif flow_type == 'with':
+                # With statement - show enter, body, exit
+                items = flow.get('items', [])
+                if items:
+                    with_label = items[0].get('label', 'Enter context')
+                    context_name = with_label.replace('Enter ', '') if with_label.startswith('Enter ') else with_label
+                else:
+                    context_name = "context"
+                    with_label = f"Enter {context_name}"
+                
+                # Truncate long labels
+                if len(with_label) > 25:
+                    with_label = with_label[:22] + "..."
+                if len(context_name) > 20:
+                    context_name = context_name[:17] + "..."
+                
+                enter_id = f'with_enter_{node_counter}'
+                body_id = f'with_body_{node_counter}'
+                exit_id = f'with_exit_{node_counter}'
+                
+                # Enter node
+                enter_node = {
+                    'id': enter_id,
+                    'type': 'process',
+                    'text': with_label,
+                    'x': 400,
+                    'y': current_y,
+                    'width': NODE_WIDTH,
+                    'height': NODE_HEIGHT
+                }
+                nodes.append(enter_node)
+                node_map[enter_id] = len(nodes) - 1
+                edges.append({
+                    'from': current_node_id,
+                    'to': enter_id,
+                    'label': None,
+                    'type': 'straight'
+                })
+                
+                current_y += NODE_SPACING_Y
+                
+                # Body node
+                body_node = {
+                    'id': body_id,
+                    'type': 'process',
+                    'text': 'With Body',
+                    'x': 400,
+                    'y': current_y,
+                    'width': NODE_WIDTH,
+                    'height': NODE_HEIGHT
+                }
+                nodes.append(body_node)
+                node_map[body_id] = len(nodes) - 1
+                edges.append({
+                    'from': enter_id,
+                    'to': body_id,
+                    'label': None,
+                    'type': 'straight'
+                })
+                
+                current_y += NODE_SPACING_Y
+                
+                # Exit node
+                exit_node = {
+                    'id': exit_id,
+                    'type': 'process',
+                    'text': f'Exit {context_name}',
+                    'x': 400,
+                    'y': current_y,
+                    'width': NODE_WIDTH,
+                    'height': NODE_HEIGHT
+                }
+                nodes.append(exit_node)
+                node_map[exit_id] = len(nodes) - 1
+                edges.append({
+                    'from': body_id,
+                    'to': exit_id,
+                    'label': None,
+                    'type': 'straight'
+                })
+                
+                current_node_id = exit_id
+                current_y += NODE_SPACING_Y
+                node_counter += 1
+            
+            elif flow_type == 'try':
+                # Try/except block - show try, multiple except branches, finally
+                try_id = f'try_{node_counter}'
+                try_body_id = f'try_body_{node_counter}'
+                exceptions = flow.get('exceptions', ['Exception'])
+                has_finally = flow.get('has_finally', False)
+                end_try_id = f'end_try_{node_counter}'
+                
+                # Try node
+                try_node = {
+                    'id': try_id,
+                    'type': 'process',
+                    'text': 'Try',
+                    'x': 400,
+                    'y': current_y,
+                    'width': NODE_WIDTH,
+                    'height': NODE_HEIGHT
+                }
+                nodes.append(try_node)
+                node_map[try_id] = len(nodes) - 1
+                edges.append({
+                    'from': current_node_id,
+                    'to': try_id,
+                    'label': None,
+                    'type': 'straight'
+                })
+                
+                current_y += NODE_SPACING_Y
+                
+                # Try body node
+                try_body_node = {
+                    'id': try_body_id,
+                    'type': 'process',
+                    'text': 'Try Body',
+                    'x': 400,
+                    'y': current_y,
+                    'width': NODE_WIDTH,
+                    'height': NODE_HEIGHT
+                }
+                nodes.append(try_body_node)
+                node_map[try_body_id] = len(nodes) - 1
+                edges.append({
+                    'from': try_id,
+                    'to': try_body_id,
+                    'label': None,
+                    'type': 'straight'
+                })
+                
+                # Add exception handlers
+                except_nodes = []
+                branch_x_offset = -BRANCH_SPACING_X * (len(exceptions) - 1) / 2
+                
+                for i, exc_type in enumerate(exceptions):
+                    except_id = f'except_{i+1}_{node_counter}'
+                    except_body_id = f'except_body_{i+1}_{node_counter}'
+                    except_label = f'Except {exc_type}'
+                    
+                    # Truncate long exception names
+                    if len(except_label) > 25:
+                        except_label = except_label[:22] + "..."
+                    
+                    x_pos = 400 + branch_x_offset + i * BRANCH_SPACING_X
+                    
+                    # Exception handler node
+                    except_node = {
+                        'id': except_id,
+                        'type': 'process',
+                        'text': except_label,
+                        'x': x_pos,
+                        'y': current_y + NODE_SPACING_Y,
+                        'width': NODE_WIDTH,
+                        'height': NODE_HEIGHT
+                    }
+                    nodes.append(except_node)
+                    node_map[except_id] = len(nodes) - 1
+                    edges.append({
+                        'from': try_body_id,
+                        'to': except_id,
+                        'label': exc_type,
+                        'type': 'straight'
+                    })
+                    
+                    # Exception body node
+                    except_body_node = {
+                        'id': except_body_id,
+                        'type': 'process',
+                        'text': f'{except_label} Body',
+                        'x': x_pos,
+                        'y': current_y + 2 * NODE_SPACING_Y,
+                        'width': NODE_WIDTH,
+                        'height': NODE_HEIGHT
+                    }
+                    nodes.append(except_body_node)
+                    node_map[except_body_id] = len(nodes) - 1
+                    edges.append({
+                        'from': except_id,
+                        'to': except_body_id,
+                        'label': None,
+                        'type': 'straight'
+                    })
+                    except_nodes.append(except_body_id)
+                
+                # Merge point after exceptions
+                merge_y = current_y + 3 * NODE_SPACING_Y
+                if has_finally:
+                    finally_id = f'finally_{node_counter}'
+                    finally_node = {
+                        'id': finally_id,
+                        'type': 'process',
+                        'text': 'Finally',
+                        'x': 400,
+                        'y': merge_y,
+                        'width': NODE_WIDTH,
+                        'height': NODE_HEIGHT
+                    }
+                    nodes.append(finally_node)
+                    node_map[finally_id] = len(nodes) - 1
+                    
+                    # Connect try body success path
+                    edges.append({
+                        'from': try_body_id,
+                        'to': finally_id,
+                        'label': 'Success',
+                        'type': 'straight'
+                    })
+                    
+                    # Connect all exception handlers to finally
+                    for except_node in except_nodes:
+                        edges.append({
+                            'from': except_node,
+                            'to': finally_id,
+                            'label': None,
+                            'type': 'straight'
+                        })
+                    
+                    merge_y += NODE_SPACING_Y
+                    end_try_node = {
+                        'id': end_try_id,
+                        'type': 'process',
+                        'text': 'Continue',
+                        'x': 400,
+                        'y': merge_y,
+                        'width': NODE_WIDTH,
+                        'height': NODE_HEIGHT
+                    }
+                    nodes.append(end_try_node)
+                    node_map[end_try_id] = len(nodes) - 1
+                    edges.append({
+                        'from': finally_id,
+                        'to': end_try_id,
+                        'label': None,
+                        'type': 'straight'
+                    })
+                else:
+                    # No finally, merge exception handlers
+                    end_try_node = {
+                        'id': end_try_id,
+                        'type': 'process',
+                        'text': 'Continue',
+                        'x': 400,
+                        'y': merge_y,
+                        'width': NODE_WIDTH,
+                        'height': NODE_HEIGHT
+                    }
+                    nodes.append(end_try_node)
+                    node_map[end_try_id] = len(nodes) - 1
+                    
+                    # Connect try body success path
+                    edges.append({
+                        'from': try_body_id,
+                        'to': end_try_id,
+                        'label': 'Success',
+                        'type': 'straight'
+                    })
+                    
+                    # Connect all exception handlers
+                    for except_node in except_nodes:
+                        edges.append({
+                            'from': except_node,
+                            'to': end_try_id,
+                            'label': None,
+                            'type': 'straight'
+                        })
+                
+                current_node_id = end_try_id
+                current_y = merge_y + NODE_SPACING_Y
+                node_counter += 1
+            
+            elif flow_type == 'if':
                 condition = flow.get('condition', 'condition')
                 has_else = flow.get('has_else', False)
                 

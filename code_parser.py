@@ -567,7 +567,7 @@ class CodeVisitor(ast.NodeVisitor):
         return self._get_annotation_name(node)
     
     def visit_Call(self, node):
-        """Visit function/method calls to track relationships."""
+        """Visit function/method calls to track relationships and control flow."""
         if not self.current_function:
             self.generic_visit(node)
             return
@@ -575,10 +575,16 @@ class CodeVisitor(ast.NodeVisitor):
         caller = self.current_function
         line = node.lineno
         
+        # Extract call information for control flow
+        call_name = None
+        call_label = None
+        
         # Get the function being called
         if isinstance(node.func, ast.Name):
             # Direct function call: function_name()
             callee = node.func.id
+            call_name = callee
+            call_label = f"{callee}()"
             # Check if it's a class instantiation
             class_names = [cls['name'] for cls in self.parser.classes]
             if callee in class_names:
@@ -601,6 +607,8 @@ class CodeVisitor(ast.NodeVisitor):
             if isinstance(node.func.value, ast.Name):
                 obj_name = node.func.value.id
                 method_name = node.func.attr
+                call_name = f"{obj_name}.{method_name}"
+                call_label = f"{obj_name}.{method_name}()"
                 
                 # Check if it's self.method() - method call within class
                 if obj_name == 'self' and self.current_class:
@@ -624,6 +632,8 @@ class CodeVisitor(ast.NodeVisitor):
             else:
                 # Complex attribute access
                 full_name = self._get_attribute_name(node.func)
+                call_name = full_name
+                call_label = f"{full_name}()"
                 self.parser.function_calls.append({
                     'caller': caller,
                     'callee': full_name,
@@ -635,7 +645,54 @@ class CodeVisitor(ast.NodeVisitor):
                     if module_part:
                         self._track_import_usage(module_part, caller, line)
         
+        # Add function call to control flow for flowchart generation
+        if call_name and self.current_function:
+            # Create a descriptive action label
+            action_label = self._create_action_label(call_name, call_label)
+            self.parser.control_flow.append({
+                'type': 'call',
+                'function': self.current_function,
+                'line': line,
+                'call_name': call_name,
+                'call_label': call_label,
+                'action_label': action_label
+            })
+        
         self.generic_visit(node)
+    
+    def _create_action_label(self, call_name: str, call_label: str) -> str:
+        """Create a descriptive action label for a function call."""
+        # Common patterns for action labels
+        call_lower = call_name.lower()
+        
+        # Method calls with common patterns
+        if '.listen' in call_lower or 'listen' in call_lower:
+            return "Listen to microphone"
+        elif '.recognize' in call_lower or 'recognize' in call_lower:
+            return "Recognize speech"
+        elif '.speak' in call_lower or 'speak' in call_lower:
+            return "Speak"
+        elif 'print' in call_lower:
+            return "Print output"
+        elif '.read' in call_lower or 'read' in call_lower:
+            return "Read data"
+        elif '.write' in call_lower or 'write' in call_lower:
+            return "Write data"
+        elif '.open' in call_lower or 'open' in call_lower:
+            return "Open file"
+        elif '.close' in call_lower or 'close' in call_lower:
+            return "Close resource"
+        elif '.get' in call_lower:
+            return "Get data"
+        elif '.set' in call_lower:
+            return "Set value"
+        elif '.send' in call_lower:
+            return "Send data"
+        elif '.receive' in call_lower:
+            return "Receive data"
+        else:
+            # Default: use the call label but make it more readable
+            return call_label.replace('()', '')
     
     def _track_import_usage(self, name: str, entity: str, line: int):
         """Track if a name is from an import."""
@@ -741,26 +798,72 @@ class CodeVisitor(ast.NodeVisitor):
         self.generic_visit(node)
     
     def visit_Try(self, node):
-        """Track try/except control flow."""
+        """Track try/except control flow with exception types."""
         if self.current_function:
+            # Extract exception types from handlers
+            exceptions = []
+            for handler in node.handlers:
+                if handler.type:
+                    # Get exception type name
+                    if isinstance(handler.type, ast.Name):
+                        exceptions.append(handler.type.id)
+                    elif isinstance(handler.type, ast.Attribute):
+                        # Handle cases like sr.UnknownValueError
+                        full_name = self._get_attribute_name(handler.type)
+                        exceptions.append(full_name)
+                    elif isinstance(handler.type, ast.Tuple):
+                        # Multiple exception types: except (A, B, C)
+                        for exc in handler.type.elts:
+                            if isinstance(exc, ast.Name):
+                                exceptions.append(exc.id)
+                            elif isinstance(exc, ast.Attribute):
+                                exceptions.append(self._get_attribute_name(exc))
+                            else:
+                                exceptions.append("Exception")
+                    else:
+                        exceptions.append("Exception")
+                else:
+                    # Bare except: except:
+                    exceptions.append("Exception")
+            
             flow_info = {
                 'type': 'try',
                 'function': self.current_function,
                 'line': node.lineno,
                 'has_except': len(node.handlers) > 0,
-                'has_finally': len(node.finalbody) > 0
+                'has_finally': len(node.finalbody) > 0,
+                'exceptions': exceptions if exceptions else ['Exception']
             }
             self.parser.control_flow.append(flow_info)
         self.generic_visit(node)
     
     def visit_With(self, node):
-        """Track with statement control flow."""
+        """Track with statement control flow with context manager names."""
         if self.current_function:
+            # Extract context manager names and create descriptive labels
+            items = []
+            for item in node.items:
+                context_expr = self._get_context_expr_string(item.context_expr)
+                # If there's an optional variable, use it; otherwise use the context expression
+                if item.optional_vars:
+                    var_name = self._get_target_string(item.optional_vars)
+                    items.append({
+                        'var': var_name,
+                        'context': context_expr,
+                        'label': f"Enter {context_expr}" if context_expr else "Enter context"
+                    })
+                else:
+                    items.append({
+                        'var': None,
+                        'context': context_expr,
+                        'label': f"Enter {context_expr}" if context_expr else "Enter context"
+                    })
+            
             flow_info = {
                 'type': 'with',
                 'function': self.current_function,
                 'line': node.lineno,
-                'items': [self._get_with_item_string(item) for item in node.items]
+                'items': items
             }
             self.parser.control_flow.append(flow_info)
         self.generic_visit(node)
@@ -864,7 +967,15 @@ class CodeVisitor(ast.NodeVisitor):
             return node.id
         elif isinstance(node, ast.Call):
             if isinstance(node.func, ast.Name):
-                return f"{node.func.id}()"
+                return node.func.id
+            elif isinstance(node.func, ast.Attribute):
+                # Handle cases like Microphone() or r.listen()
+                if isinstance(node.func.value, ast.Name):
+                    return node.func.value.id
+                return self._get_attribute_name(node.func)
+        elif isinstance(node, ast.Attribute):
+            # Handle attribute access like sr.Microphone
+            return self._get_attribute_name(node)
         return "context"
     
     def _infer_type(self, node):
