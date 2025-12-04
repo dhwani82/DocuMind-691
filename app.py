@@ -175,10 +175,6 @@ def clone_github_repo(repo_url: str) -> str:
     # Normalize the URL
     url = repo_url.strip()
     
-    # Remove trailing .git if present
-    if url.endswith('.git'):
-        url = url[:-4]
-    
     # Handle git@github.com:username/repo format
     if url.startswith('git@github.com:'):
         url = url.replace('git@github.com:', 'https://github.com/')
@@ -191,16 +187,24 @@ def clone_github_repo(repo_url: str) -> str:
     if not url.startswith('https://github.com/') and not url.startswith('http://github.com/'):
         raise ValueError(f'Invalid GitHub URL format: {repo_url}. Expected: https://github.com/username/repo')
     
-    # Extract repo name from URL for the temp directory name
+    # Extract repo name from URL for the temp directory name (before adding .git)
     repo_name = url.split('/')[-1]
     if not repo_name:
         raise ValueError(f'Could not extract repository name from URL: {repo_url}')
+    
+    # Remove trailing .git from repo_name if present (for directory name)
+    if repo_name.endswith('.git'):
+        repo_name = repo_name[:-4]
+    
+    # Add .git to URL if not present (git clone works better with .git)
+    if not url.endswith('.git'):
+        url = url + '.git'
     
     # Create a temporary directory
     temp_dir = tempfile.mkdtemp(prefix='documind_repo_')
     
     try:
-        # Clone the repository
+        # Clone the repository - git clone creates a directory with repo_name
         clone_path = os.path.join(temp_dir, repo_name)
         
         # Run git clone command
@@ -243,7 +247,13 @@ def clone_github_repo(repo_url: str) -> str:
         if os.path.exists(temp_dir):
             shutil.rmtree(temp_dir, ignore_errors=True)
         error_msg = e.stderr.strip() if e.stderr else str(e)
-        raise ValueError(f'Failed to clone repository {repo_url}: {error_msg}')
+        # Provide more helpful error messages
+        if 'not found' in error_msg.lower() or 'does not exist' in error_msg.lower():
+            raise ValueError(f'Repository not found: {repo_url}. Please check that the repository exists and is accessible.')
+        elif 'permission denied' in error_msg.lower() or 'authentication' in error_msg.lower():
+            raise ValueError(f'Permission denied for repository: {repo_url}. The repository may be private or you may need to authenticate.')
+        else:
+            raise ValueError(f'Failed to clone repository {repo_url}: {error_msg}')
     
     except Exception as e:
         # Clean up temp directory on any other error

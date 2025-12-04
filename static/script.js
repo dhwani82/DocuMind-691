@@ -1915,42 +1915,54 @@ function switchDiagramTab(tab, event) {
 }
 
 async function downloadSVGFlowchart() {
-    if (!currentCode) {
-        showError('Please analyze code first');
+    // Get the rendered flowchart SVG from the DOM
+    const flowchartElement = document.getElementById('flowchart-mermaid');
+    if (!flowchartElement) {
+        showError('No flowchart found. Please select a file and view the flowchart diagram first.');
+        return;
+    }
+    
+    // Find the SVG element within the flowchart container
+    const svgElement = flowchartElement.querySelector('svg');
+    if (!svgElement) {
+        showError('Flowchart SVG not found. Please wait for the diagram to render.');
         return;
     }
     
     try {
-        const response = await fetch('/api/generate-svg-flowchart', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({ 
-                code: currentCode,
-                function_name: null  // Can be set to specific function name
-            })
-        });
+        // Clone the SVG to avoid modifying the original
+        const svgClone = svgElement.cloneNode(true);
         
-        if (!response.ok) {
-            const error = await response.json();
-            showError(error.error || 'Error generating SVG');
-            return;
+        // Get the file name for the download (if available)
+        const fileSelect = document.getElementById('diagram-file-select');
+        let fileName = 'flowchart.svg';
+        if (fileSelect && fileSelect.value !== '') {
+            const selectedOption = fileSelect.options[fileSelect.selectedIndex];
+            if (selectedOption) {
+                const baseName = selectedOption.textContent.replace(/\.[^/.]+$/, '');
+                fileName = `${baseName}_flowchart.svg`;
+            }
         }
         
-        // Get SVG content
-        const svgBlob = await response.blob();
+        // Convert SVG to string
+        const svgString = new XMLSerializer().serializeToString(svgClone);
+        
+        // Create blob and download
+        const svgBlob = new Blob([svgString], { type: 'image/svg+xml;charset=utf-8' });
         const url = URL.createObjectURL(svgBlob);
         const a = document.createElement('a');
         a.href = url;
-        a.download = 'flowchart.svg';
+        a.download = fileName;
         document.body.appendChild(a);
         a.click();
         document.body.removeChild(a);
         URL.revokeObjectURL(url);
         
+        console.log('SVG flowchart downloaded successfully');
+        
     } catch (error) {
-        showError('Network error: ' + error.message);
+        console.error('Error downloading SVG:', error);
+        showError('Error downloading SVG: ' + error.message);
     }
 }
 
