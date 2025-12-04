@@ -807,6 +807,27 @@ class DiagramGenerator:
         lines.append("```")
         return "\n".join(lines)
     
+    def _sanitize_module_id(self, module_name: str) -> str:
+        """Sanitize module name for use as Mermaid node ID.
+        
+        Handles special characters like @, /, -, ., etc.
+        """
+        # Replace special characters that Mermaid doesn't like in IDs
+        sanitized = module_name.replace('@', 'AT_')
+        sanitized = sanitized.replace('/', '_')
+        sanitized = sanitized.replace('-', '_')
+        sanitized = sanitized.replace('.', '_')
+        sanitized = sanitized.replace(' ', '_')
+        # Remove any other non-alphanumeric characters except underscore
+        sanitized = ''.join(c if c.isalnum() or c == '_' else '_' for c in sanitized)
+        # Ensure it starts with a letter or underscore
+        if sanitized and not (sanitized[0].isalpha() or sanitized[0] == '_'):
+            sanitized = 'MOD_' + sanitized
+        # Ensure it's not empty
+        if not sanitized:
+            sanitized = 'MODULE'
+        return sanitized
+    
     def _sanitize_id(self, name: str) -> str:
         """Sanitize a name to be used as a Mermaid node ID."""
         # Replace spaces, dots, dashes with underscores, and remove special chars
@@ -1315,22 +1336,53 @@ class DiagramGenerator:
         lines = ["```mermaid", "graph TD"]
         lines.append("    direction TB")
         
-        # Group imports by module
-        modules = set()
+        # Group imports by module (group submodules under parent for better organization)
+        modules = {}
         import_details = {}
         for imp in self.imports:
             if imp['type'] == 'import':
-                module = imp['module'].split('.')[0]
-                modules.add(module)
-                if module not in import_details:
-                    import_details[module] = []
-                import_details[module].append(imp['module'])
+                full_module = imp['module']
+                # For scoped packages like @mui/icons-material, use the full scoped path
+                # For regular packages, group submodules under base (e.g., @mui/material/styles -> @mui/material)
+                if full_module.startswith('@'):
+                    # Scoped package - keep full path for distinct packages
+                    # But group submodules: @mui/material/styles -> @mui/material
+                    parts = full_module.split('/')
+                    if len(parts) > 1:
+                        # Group submodules: @mui/material/styles -> @mui/material
+                        base_module = '/'.join(parts[:2])  # @mui/material
+                    else:
+                        base_module = full_module
+                else:
+                    # Regular package - use base module name
+                    base_module = full_module.split('.')[0]
+                
+                if base_module not in modules:
+                    modules[base_module] = set()
+                modules[base_module].add(full_module)
+                
+                if base_module not in import_details:
+                    import_details[base_module] = []
+                import_details[base_module].append(full_module)
             elif imp['type'] == 'from_import' and imp['module']:
-                module = imp['module'].split('.')[0]
-                modules.add(module)
-                if module not in import_details:
-                    import_details[module] = []
-                import_details[module].append(f"{imp['module']}.{imp['name']}")
+                full_module = imp['module']
+                # Same grouping logic
+                if full_module.startswith('@'):
+                    parts = full_module.split('/')
+                    if len(parts) > 1:
+                        base_module = '/'.join(parts[:2])
+                    else:
+                        base_module = full_module
+                else:
+                    base_module = full_module.split('.')[0]
+                
+                if base_module not in modules:
+                    modules[base_module] = set()
+                modules[base_module].add(full_module)
+                
+                if base_module not in import_details:
+                    import_details[base_module] = []
+                import_details[base_module].append(f"{full_module}.{imp['name']}")
         
         # Current module (your code)
         current_module = "CurrentModule"
@@ -1338,11 +1390,18 @@ class DiagramGenerator:
         lines.append(f"    style {current_module} fill:#e8f5e9,stroke:#4caf50,stroke-width:3px")
         
         # Add modules as nodes with better labels
-        module_list = sorted(list(modules))[:12]  # Limit to 12 for readability
+        module_list = sorted(list(modules.keys()))[:12]  # Limit to 12 for readability
         for module in module_list:
-            module_id = module.replace('.', '_').replace('-', '_')
+            # Properly sanitize module ID for Mermaid (handle @, /, -, ., etc.)
+            module_id = self._sanitize_module_id(module)
             count = len(import_details.get(module, []))
-            label = f"📚 {module}" if count > 1 else f"📦 {module}"
+            # Show submodules in label if grouped
+            submodules = modules.get(module, set())
+            if len(submodules) > 1:
+                # Show count of submodules
+                label = f"📚 {module}\\n({len(submodules)} imports)"
+            else:
+                label = f"📦 {module}"
             lines.append(f"    {module_id}[\"{label}\"]")
             lines.append(f"    style {module_id} fill:#fff4e6,stroke:#ff9800")
             lines.append(f"    {current_module} -->|imports| {module_id}")
@@ -1412,18 +1471,26 @@ class DiagramGenerator:
             return "```mermaid\nflowchart TD\n    A[Functions found] --> B[No control flow structures detected]\n    B --> C[Add if/else, loops, etc. to see flowcharts]\n```"
     
     def _generate_javascript_flowchart(self) -> str:
-        """Generate flowchart for JavaScript - uses the first function from parse_code_auto output."""
+        """Generate flowchart for JavaScript/JSX - analyzes component structure and hooks."""
         functions = self.parse_result.get('functions', [])
         
         if not functions:
             # Generate flowchart based on available code elements
             return self._generate_structure_based_flowchart()
         
-        # Get the FIRST function from parse_code_auto output
-        first_func = functions[0]
-        func_name = first_func.get('name', 'function')
-        params = first_func.get('parameters', [])
-        is_async = first_func.get('is_async', False)
+        # Get the main component/function (first one, or React component if available)
+        main_func = None
+        for func in functions:
+            if func.get('is_react_component', False):
+                main_func = func
+                break
+        if not main_func:
+            main_func = functions[0]
+        
+        func_name = main_func.get('name', 'function')
+        params = main_func.get('parameters', [])
+        is_async = main_func.get('is_async', False)
+        is_react = main_func.get('is_react_component', False)
         
         lines = ["```mermaid", "flowchart TD"]
         
@@ -1432,6 +1499,8 @@ class DiagramGenerator:
         func_label = f"▶️ Start: {func_name}"
         if is_async:
             func_label += " (async)"
+        if is_react:
+            func_label += "\\n(React Component)"
         if params:
             param_str = ', '.join(params[:3])
             if len(params) > 3:
@@ -1441,14 +1510,63 @@ class DiagramGenerator:
         lines.append(f"    {start_id}([\"{func_label}\"])")
         lines.append(f"    style {start_id} fill:#e8f4f8,stroke:#2196F3,stroke-width:3px")
         
-        # Process node (simplified - JavaScript parser doesn't extract control flow yet)
-        process_id = "Process"
-        lines.append(f"    {start_id} --> {process_id}[\"⚙️ Function Body\"]")
-        lines.append(f"    style {process_id} fill:#e8f5e9,stroke:#4caf50,stroke-width:2px")
+        # Check for React hooks and state management
+        function_calls = self.parse_result.get('function_calls', [])
+        hooks = []
+        for call in function_calls:
+            callee = call.get('callee', '').lower()
+            if callee.startswith('use') and callee in ['usestate', 'useeffect', 'usecontext', 'usereducer', 'usememo', 'usecallback', 'useref']:
+                hooks.append(callee)
+        
+        # Add hooks initialization if found
+        if hooks:
+            hooks_id = "Hooks"
+            unique_hooks = list(set(hooks))[:5]  # Limit to 5 hooks
+            hooks_label = "\\n".join([f"• {h}" for h in unique_hooks])
+            if len(hooks) > 5:
+                hooks_label += f"\\n• ... {len(hooks) - 5} more"
+            lines.append(f"    {start_id} --> {hooks_id}[\"🎣 Initialize Hooks\\n{hooks_label}\"]")
+            lines.append(f"    style {hooks_id} fill:#e1f5fe,stroke:#0288d1,stroke-width:2px")
+            current_node = hooks_id
+        else:
+            current_node = start_id
+        
+        # Check for event handlers
+        handlers = []
+        for func in functions:
+            func_name_lower = func.get('name', '').lower()
+            if any(prefix in func_name_lower for prefix in ['handle', 'on', 'click', 'submit', 'change']):
+                handlers.append(func.get('name'))
+        
+        # Add component logic/rendering
+        if is_react:
+            render_id = "Render"
+            lines.append(f"    {current_node} --> {render_id}[\"⚛️ Render JSX\\nComponent UI\"]")
+            lines.append(f"    style {render_id} fill:#e8f5e9,stroke:#4caf50,stroke-width:2px")
+            
+            if handlers:
+                handlers_id = "Handlers"
+                handlers_label = "\\n".join([f"• {h}()" for h in handlers[:3]])
+                if len(handlers) > 3:
+                    handlers_label += f"\\n• ... {len(handlers) - 3} more"
+                lines.append(f"    {render_id} --> {handlers_id}[\"🖱️ Event Handlers\\n{handlers_label}\"]")
+                lines.append(f"    style {handlers_id} fill:#fff3e0,stroke:#ff9800,stroke-width:2px")
+                current_node = handlers_id
+            else:
+                current_node = render_id
+        else:
+            # Regular JavaScript function
+            process_id = "Process"
+            lines.append(f"    {current_node} --> {process_id}[\"⚙️ Function Body\\nExecute Logic\"]")
+            lines.append(f"    style {process_id} fill:#e8f5e9,stroke:#4caf50,stroke-width:2px")
+            current_node = process_id
         
         # Return/End node
         end_id = "End"
-        lines.append(f"    {process_id} --> {end_id}([\"🏁 End: {func_name}\"])")
+        end_label = f"🏁 End: {func_name}"
+        if is_react:
+            end_label += "\\n(Component Rendered)"
+        lines.append(f"    {current_node} --> {end_id}([\"{end_label}\"])")
         lines.append(f"    style {end_id} fill:#ffebee,stroke:#f44336,stroke-width:3px")
         
         lines.append("```")

@@ -1237,3 +1237,100 @@ header h1 {
     padding: 10px;
 }
 
+
+
+/* File Explorer Sidebar */
+.file-explorer-sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    width: 300px;
+    height: 100vh;
+    background: linear-gradient(180deg, #1e293b 0%, #0f172a 100%);
+    border-right: 2px solid rgba(59, 130, 246, 0.3);
+    z-index: 1000;
+    overflow-y: auto;
+    transition: width 0.3s ease;
+    box-shadow: 4px 0 16px rgba(0, 0, 0, 0.3);
+}
+
+.file-explorer-sidebar .sidebar-header {
+    padding: 20px;
+    border-bottom: 2px solid rgba(59, 130, 246, 0.2);
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    background: rgba(15, 23, 42, 0.8);
+    position: sticky;
+    top: 0;
+    z-index: 10;
+}
+
+.file-explorer-sidebar .sidebar-header h3 {
+    color: #60a5fa;
+    font-size: 1.2rem;
+    font-weight: 700;
+    margin: 0;
+}
+
+.file-explorer-sidebar .sidebar-toggle {
+    background: transparent;
+    border: none;
+    color: #60a5fa;
+    cursor: pointer;
+    padding: 8px;
+    border-radius: 6px;
+    transition: all 0.2s;
+}
+
+.file-explorer-sidebar .sidebar-toggle:hover {
+    background: rgba(59, 130, 246, 0.2);
+}
+
+.file-explorer-sidebar .sidebar-content {
+    padding: 10px;
+}
+
+.file-explorer-item {
+    padding: 12px 16px;
+    margin: 4px 0;
+    background: rgba(30, 41, 59, 0.5);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    border: 2px solid transparent;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.file-explorer-item:hover {
+    background: rgba(59, 130, 246, 0.2);
+    border-color: #3b82f6;
+}
+
+.file-explorer-item.active {
+    background: rgba(59, 130, 246, 0.3);
+    border-color: #3b82f6;
+}
+
+/* Adjust main content when sidebar is visible */
+.output-section {
+    display: flex;
+    position: relative;
+}
+
+.results-main-content {
+    flex: 1;
+    margin-left: 300px;
+    transition: margin-left 0.3s ease;
+}
+
+.output-section:has(.file-explorer-sidebar[style*='display: none']) .results-main-content {
+    margin-left: 0;
+}
+
+.output-section:has(.file-explorer-sidebar[style*='width: 60px']) .results-main-content {
+    margin-left: 60px;
+}
+

@@ -7,6 +7,7 @@ import tempfile
 import subprocess
 import shutil
 from pathlib import Path
+from typing import Dict, List, Any
 from code_parser import CodeParser
 from doc_generator import DocumentationGenerator
 from diagram_generator import DiagramGenerator
@@ -18,6 +19,145 @@ from project_scanner import scan_project
 
 app = Flask(__name__)
 CORS(app)
+
+def generate_per_file_diagrams(file_details: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    """Generate diagrams for each file individually.
+    
+    For each file:
+    - Generate a Structure Diagram only for that single file
+    - Generate a Flowchart per top-level function or class method in that file
+    - Generate a Sequence Diagram only for that file's function interactions
+    
+    Args:
+        file_details: List of file detail dictionaries from parse result
+        
+    Returns:
+        Dictionary mapping file paths to their diagrams
+    """
+    file_diagrams = {}
+    
+    for file_detail in file_details:
+        file_path = file_detail.get('path', 'unknown')
+        
+        # Skip files with errors
+        if file_detail.get('error'):
+            file_diagrams[file_path] = {
+                'architecture': None,
+                'structure': None,
+                'sequence': None,
+                'dependencies': None,
+                'flowchart': None,
+                'flowcharts': {},
+                'error': file_detail.get('error')
+            }
+            continue
+        
+        try:
+            # Create a parse result structure for this single file
+            single_file_result = {
+                'functions': file_detail.get('functions', []),
+                'classes': file_detail.get('classes', []),
+                'function_calls': file_detail.get('function_calls', []),
+                'method_calls': file_detail.get('method_calls', []),
+                'class_instantiations': file_detail.get('class_instantiations', []),
+                'imports': file_detail.get('imports', []),
+                'control_flow': file_detail.get('control_flow', []),
+                'import_usage': file_detail.get('import_usage', []),
+                'global_variables': file_detail.get('global_variables', []),
+                'local_variables': file_detail.get('local_variables', []),
+                'execution_scope_variables': file_detail.get('execution_scope_variables', []),
+                'tables': file_detail.get('tables', []),
+                'relationships': file_detail.get('relationships', []),
+                'language': file_detail.get('language', 'python')
+            }
+            
+            # Generate diagrams for this file
+            diagram_gen = DiagramGenerator(single_file_result)
+            
+            # 1. Generate Architecture Diagram for this file
+            architecture_diagram = diagram_gen.generate_architecture_diagram()
+            
+            # 2. Generate Structure Diagram for this file
+            structure_diagram = diagram_gen.generate_structure_diagram()
+            
+            # 3. Generate Sequence Diagram for this file's function interactions
+            sequence_diagram = diagram_gen.generate_sequence_diagram()
+            
+            # 4. Generate Dependencies Diagram for this file
+            dependencies_diagram = diagram_gen.generate_dependency_diagram()
+            
+            # 5. Generate Flowchart per top-level function or class method
+            flowcharts = {}
+            
+            # Get top-level functions (not nested, not methods)
+            top_level_funcs = [f for f in single_file_result['functions'] 
+                             if not f.get('is_nested', False) and not f.get('is_method', False)]
+            
+            # Generate flowchart for each top-level function
+            for func in top_level_funcs:
+                func_name = func.get('name')
+                if func_name:
+                    try:
+                        flowchart = diagram_gen.generate_flowchart(function_name=func_name)
+                        flowcharts[func_name] = flowchart
+                    except Exception as e:
+                        print(f"Error generating flowchart for {func_name} in {file_path}: {str(e)}")
+                        flowcharts[func_name] = None
+            
+            # Get class methods
+            for cls in single_file_result['classes']:
+                cls_name = cls.get('name')
+                methods = cls.get('methods', [])
+                for method in methods:
+                    method_name = method.get('name')
+                    if method_name:
+                        # For methods, control flow entries use "ClassName.method_name" format
+                        method_full_name = f"{cls_name}.{method_name}"
+                        method_flow = [cf for cf in single_file_result['control_flow'] 
+                                     if cf.get('function') == method_name or cf.get('function') == method_full_name]
+                        
+                        # Always try to generate flowchart for methods, even if no control flow
+                        try:
+                            # Create a temporary result with just this method
+                            method_result = single_file_result.copy()
+                            # Add method as a function for diagram generation
+                            method_as_func = method.copy()
+                            method_result['functions'] = [method_as_func]
+                            method_result['control_flow'] = method_flow
+                            method_diagram_gen = DiagramGenerator(method_result)
+                            flowchart = method_diagram_gen.generate_flowchart(function_name=method_name)
+                            flowcharts[f"{cls_name}.{method_name}"] = flowchart
+                        except Exception as e:
+                            print(f"Error generating flowchart for {cls_name}.{method_name} in {file_path}: {str(e)}")
+                            flowcharts[f"{cls_name}.{method_name}"] = None
+            
+            # Generate a combined flowchart for the file (showing all functions)
+            combined_flowchart = diagram_gen.generate_flowchart()
+            
+            file_diagrams[file_path] = {
+                'architecture': architecture_diagram,
+                'structure': structure_diagram,
+                'sequence': sequence_diagram,
+                'dependencies': dependencies_diagram,
+                'flowchart': combined_flowchart,
+                'flowcharts': flowcharts  # Individual function flowcharts
+            }
+            
+        except Exception as e:
+            print(f"Error generating diagrams for {file_path}: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            file_diagrams[file_path] = {
+                'architecture': None,
+                'structure': None,
+                'sequence': None,
+                'dependencies': None,
+                'flowchart': None,
+                'flowcharts': {},
+                'error': str(e)
+            }
+    
+    return file_diagrams
 
 def clone_github_repo(repo_url: str) -> str:
     """Clone a GitHub repository to a temporary directory.
@@ -73,11 +213,22 @@ def clone_github_repo(repo_url: str) -> str:
         )
         
         # Verify the directory was created and contains files
+        # Normalize to absolute path
+        clone_path = os.path.abspath(clone_path)
+        
         if not os.path.exists(clone_path):
             raise ValueError(f'Repository cloned but directory not found: {clone_path}')
         
         if not os.path.isdir(clone_path):
             raise ValueError(f'Cloned path is not a directory: {clone_path}')
+        
+        # Verify the directory has content
+        try:
+            files = os.listdir(clone_path)
+            if not files:
+                raise ValueError(f'Repository cloned but directory is empty: {clone_path}')
+        except OSError as e:
+            raise ValueError(f'Cannot access cloned repository directory: {clone_path}. Error: {str(e)}')
         
         return clone_path
         
@@ -377,10 +528,15 @@ def parse_project():
         # Use project_scanner to scan and parse the project
         all_results = scan_project(folder_path)
         
-        # Generate diagrams for the project
+        # Generate both per-file diagrams AND full-project diagrams
         try:
+            # Generate per-file diagrams for individual file views
+            file_diagrams = generate_per_file_diagrams(all_results.get('file_details', []))
+            all_results['file_diagrams'] = file_diagrams
+            
+            # Generate full-project combined diagrams
             diagram_gen = DiagramGenerator(all_results)
-            diagrams = {
+            full_project_diagrams = {
                 'architecture': diagram_gen.generate_architecture_diagram(),
                 'code_architecture': diagram_gen.generate_code_architecture_diagram(),
                 'sequence': diagram_gen.generate_sequence_diagram(),
@@ -388,9 +544,10 @@ def parse_project():
                 'flowchart': diagram_gen.generate_flowchart(),
                 'structure': diagram_gen.generate_structure_diagram()
             }
-            all_results['diagrams'] = diagrams
+            all_results['diagrams'] = full_project_diagrams
         except Exception as diagram_error:
             print(f"Error generating diagrams: {str(diagram_error)}")
+            all_results['file_diagrams'] = {}
             all_results['diagrams'] = {}
         
         return jsonify(all_results)
@@ -644,10 +801,15 @@ def parse_uploaded_project():
             aggregated['summary']['instance_variables']
         )
         
-        # Generate diagrams for the project
+        # Generate both per-file diagrams AND full-project diagrams
         try:
+            # Generate per-file diagrams for individual file views
+            file_diagrams = generate_per_file_diagrams(aggregated.get('file_details', []))
+            aggregated['file_diagrams'] = file_diagrams
+            
+            # Generate full-project combined diagrams
             diagram_gen = DiagramGenerator(aggregated)
-            diagrams = {
+            full_project_diagrams = {
                 'architecture': diagram_gen.generate_architecture_diagram(),
                 'code_architecture': diagram_gen.generate_code_architecture_diagram(),
                 'sequence': diagram_gen.generate_sequence_diagram(),
@@ -655,9 +817,10 @@ def parse_uploaded_project():
                 'flowchart': diagram_gen.generate_flowchart(),
                 'structure': diagram_gen.generate_structure_diagram()
             }
-            aggregated['diagrams'] = diagrams
+            aggregated['diagrams'] = full_project_diagrams
         except Exception as diagram_error:
             print(f"Error generating diagrams: {str(diagram_error)}")
+            aggregated['file_diagrams'] = {}
             aggregated['diagrams'] = {}
         
         return jsonify(aggregated)
@@ -701,6 +864,18 @@ def parse_github_repo():
                 error_msg = 'Failed to clone repository. Please check the URL and try again.'
             return jsonify({'error': f'Error cloning repository: {error_msg}'}), 500
         
+        # Verify clone_path exists before scanning
+        if not clone_path or not os.path.exists(clone_path):
+            error_msg = f'Repository cloned but path does not exist: {clone_path}'
+            if clone_path:
+                parent_dir = os.path.dirname(clone_path)
+                if os.path.exists(parent_dir):
+                    shutil.rmtree(parent_dir, ignore_errors=True)
+            return jsonify({'error': error_msg}), 500
+        
+        # Normalize the path to absolute path
+        clone_path = os.path.abspath(clone_path)
+        
         # Use project_scanner to scan and parse the cloned project
         try:
             all_results = scan_project(clone_path)
@@ -710,7 +885,11 @@ def parse_github_repo():
                 parent_dir = os.path.dirname(clone_path)
                 if os.path.exists(parent_dir):
                     shutil.rmtree(parent_dir, ignore_errors=True)
-            return jsonify({'error': str(e)}), 400
+            error_msg = str(e)
+            # Provide more helpful error message
+            if 'Path does not exist' in error_msg:
+                error_msg = f'Cloned repository path not found. This may be a temporary issue. Please try again. Original error: {error_msg}'
+            return jsonify({'error': error_msg}), 400
         except Exception as scan_error:
             # Clean up cloned directory on scan error
             if clone_path and os.path.exists(clone_path):
@@ -720,6 +899,9 @@ def parse_github_repo():
             error_msg = str(scan_error)
             if not error_msg:
                 error_msg = 'Failed to scan and parse the cloned repository.'
+            # Provide more helpful error message
+            if 'Path does not exist' in error_msg or 'does not exist' in error_msg.lower():
+                error_msg = f'Repository path issue detected. Please try again. Original error: {error_msg}'
             return jsonify({'error': f'Error scanning repository: {error_msg}'}), 500
         
         # Extract detected languages from file extensions
@@ -743,10 +925,15 @@ def parse_github_repo():
                     if lang:
                         detected_languages.add(lang)
         
-        # Generate diagrams for the project
+        # Generate both per-file diagrams AND full-project diagrams
         try:
+            # Generate per-file diagrams for individual file views
+            file_diagrams = generate_per_file_diagrams(all_results.get('file_details', []))
+            all_results['file_diagrams'] = file_diagrams
+            
+            # Generate full-project combined diagrams
             diagram_gen = DiagramGenerator(all_results)
-            diagrams = {
+            full_project_diagrams = {
                 'architecture': diagram_gen.generate_architecture_diagram(),
                 'code_architecture': diagram_gen.generate_code_architecture_diagram(),
                 'sequence': diagram_gen.generate_sequence_diagram(),
@@ -754,10 +941,11 @@ def parse_github_repo():
                 'flowchart': diagram_gen.generate_flowchart(),
                 'structure': diagram_gen.generate_structure_diagram()
             }
-            all_results['diagrams'] = diagrams
+            all_results['diagrams'] = full_project_diagrams
         except Exception as diagram_error:
             # Log error but don't fail the request
             print(f"Error generating diagrams: {str(diagram_error)}")
+            all_results['file_diagrams'] = {}
             all_results['diagrams'] = {}
         
         # Add metadata about the cloned repository

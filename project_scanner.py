@@ -222,6 +222,7 @@ def scan_project(root_path: str) -> Dict[str, Any]:
                 'path': relative_path,
                 'absolute_path': file_path,
                 'language': lang_normalized,
+                'lines_of_code': lines_of_code,
                 'functions': result.get('functions', []),
                 'classes': result.get('classes', []),
                 'tables': result.get('tables', []),

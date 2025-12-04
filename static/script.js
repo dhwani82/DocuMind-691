@@ -6,6 +6,8 @@ let varSectionCounter = 0;
 let currentFilename = null; // Store current filename for language detection
 let currentParserMode = 'single'; // 'single' or 'project'
 let currentProjectFileDetails = null; // Store project file details for filtering
+let currentSelectedFileIndex = null; // Store currently selected file index
+let sidebarCollapsed = false; // Track sidebar state
 
 function switchParserMode(mode) {
     currentParserMode = mode;
@@ -215,8 +217,11 @@ async function parseUploadedProject() {
         document.getElementById('doc-btn').style.display = 'block';
         
         // Display diagrams if available
-        if (data.diagrams) {
+        // For projects, setup file selector but don't auto-display
+        if (data.diagrams && !data.file_details) {
             displayDiagrams(data.diagrams);
+        } else if (data.file_details && data.file_details.length > 0) {
+            setupDiagramFileSelector(data.file_details, data);
         }
         
     } catch (error) {
@@ -337,8 +342,11 @@ async function cloneAndParseRepo() {
         document.getElementById('doc-btn').style.display = 'block';
         
         // Display diagrams if available
-        if (data.diagrams) {
+        // For projects, setup file selector but don't auto-display
+        if (data.diagrams && !data.file_details) {
             displayDiagrams(data.diagrams);
+        } else if (data.file_details && data.file_details.length > 0) {
+            setupDiagramFileSelector(data.file_details, data);
         }
         
     } catch (error) {
@@ -465,10 +473,23 @@ async function parseCode() {
             body: JSON.stringify(requestBody)
         });
         
-        const data = await response.json();
+        // Check if response is JSON before parsing
+        const contentType = response.headers.get('content-type');
+        let data;
+        
+        if (contentType && contentType.includes('application/json')) {
+            data = await response.json();
+        } else {
+            const text = await response.text();
+            console.error('Non-JSON response:', text.substring(0, 500));
+            showError('Server returned an unexpected response. Please check the server logs.');
+            hideLoading();
+            return;
+        }
         
         if (!response.ok) {
-            showError(data.error || 'An error occurred');
+            showError(data.error || 'An error occurred while parsing the code');
+            hideLoading();
             return;
         }
         
@@ -494,12 +515,24 @@ async function parseCode() {
         document.getElementById('doc-btn').style.display = 'block';
         
         // Display diagrams if available
-        if (data.diagrams) {
+        // For projects, setup file selector but don't auto-display
+        if (data.diagrams && !data.file_details) {
             displayDiagrams(data.diagrams);
+        } else if (data.file_details && data.file_details.length > 0) {
+            setupDiagramFileSelector(data.file_details, data);
         }
         
     } catch (error) {
-        showError('Network error: ' + error.message);
+        console.error('Parse error:', error);
+        if (error.message.includes('fetch')) {
+            showError('Failed to connect to server. Please make sure the server is running.');
+        } else if (error.message.includes('JSON')) {
+            showError('Server returned invalid response. Please check the server logs.');
+        } else {
+            showError('Network error: ' + error.message);
+        }
+    } finally {
+        hideLoading();
     }
 }
 
@@ -923,6 +956,18 @@ function displayProjectSummary(data) {
     html += renderFileDetails(fileDetails);
     html += `</div>`;
     summaryView.innerHTML = html;
+    
+    // Setup file explorer sidebar for projects
+    setupFileExplorerSidebar(fileDetails, data);
+    
+    // Setup diagram file selector dropdown
+    setupDiagramFileSelector(fileDetails, data);
+    
+    // Show full-project diagrams button
+    const fullProjectBtn = document.getElementById('full-project-diagrams-btn');
+    if (fullProjectBtn && data.diagrams) {
+        fullProjectBtn.style.display = 'inline-flex';
+    }
 }
 
 function renderFileDetails(fileDetails, selectedIndex = null) {
@@ -1959,13 +2004,507 @@ async function parseProject() {
         // Show documentation button after successful parse
         document.getElementById('doc-btn').style.display = 'block';
         
-        // Display diagrams if available
-        if (data.diagrams) {
+        // For projects, setup file selector but don't auto-display
+        // For single files, display diagrams immediately
+        if (data.diagrams && !data.file_details) {
             displayDiagrams(data.diagrams);
+        } else if (data.file_details && data.file_details.length > 0) {
+            setupDiagramFileSelector(data.file_details, data);
         }
         
     } catch (error) {
         showError('Network error: ' + error.message);
+    }
+}
+
+// File Explorer Sidebar Functions
+function setupFileExplorerSidebar(fileDetails, data) {
+    const sidebar = document.getElementById('file-explorer-sidebar');
+    const fileList = document.getElementById('file-explorer-list');
+    
+    if (!sidebar || !fileList || !fileDetails || fileDetails.length === 0) {
+        return;
+    }
+    
+    // Show sidebar for projects
+    sidebar.style.display = 'block';
+    
+    // Clear existing list
+    fileList.innerHTML = '';
+    
+    // Create file items
+    fileDetails.forEach((fileDetail, index) => {
+        const filePath = fileDetail.path || fileDetail.absolute_path || 'Unknown';
+        const fileName = filePath.split('/').pop() || filePath;
+        const fileItem = document.createElement('div');
+        fileItem.className = 'file-explorer-item';
+        fileItem.dataset.fileIndex = index;
+        fileItem.style.cssText = `
+            padding: 12px 16px;
+            margin: 4px 0;
+            background: rgba(30, 41, 59, 0.5);
+            border-radius: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+            border: 2px solid transparent;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        `;
+        
+        fileItem.innerHTML = `
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink: 0; color: #60a5fa;">
+                <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"></path>
+                <polyline points="13 2 13 9 20 9"></polyline>
+            </svg>
+            <span style="color: #e2e8f0; font-family: 'Fira Code', monospace; font-size: 0.9rem; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;" title="${filePath}">${fileName}</span>
+        `;
+        
+        fileItem.onmouseenter = function() {
+            this.style.background = 'rgba(59, 130, 246, 0.2)';
+            this.style.borderColor = '#3b82f6';
+        };
+        fileItem.onmouseleave = function() {
+            if (currentSelectedFileIndex !== index) {
+                this.style.background = 'rgba(30, 41, 59, 0.5)';
+                this.style.borderColor = 'transparent';
+            }
+        };
+        
+        fileItem.onclick = function() {
+            selectFile(index, fileDetail, data);
+        };
+        
+        fileList.appendChild(fileItem);
+    });
+}
+
+function selectFile(fileIndex, fileDetail, data) {
+    currentSelectedFileIndex = fileIndex;
+    
+    // Update sidebar selection
+    const fileItems = document.querySelectorAll('.file-explorer-item');
+    fileItems.forEach((item, index) => {
+        if (index === fileIndex) {
+            item.style.background = 'rgba(59, 130, 246, 0.3)';
+            item.style.borderColor = '#3b82f6';
+            item.style.color = '#60a5fa';
+        } else {
+            item.style.background = 'rgba(30, 41, 59, 0.5)';
+            item.style.borderColor = 'transparent';
+        }
+    });
+    
+    // Get file-specific diagrams - try multiple path variations
+    const filePath = fileDetail.path || fileDetail.absolute_path || 'Unknown';
+    let fileDiagrams = null;
+    
+    if (data.file_diagrams) {
+        // Try exact match first
+        fileDiagrams = data.file_diagrams[filePath];
+        
+        // If not found, try other path variations
+        if (!fileDiagrams) {
+            const altPath = fileDetail.absolute_path || fileDetail.path;
+            fileDiagrams = data.file_diagrams[altPath];
+        }
+        
+        // If still not found, try finding by matching any key that contains the filename
+        if (!fileDiagrams) {
+            const fileName = filePath.split('/').pop() || filePath.split('\\').pop();
+            for (const [key, diagrams] of Object.entries(data.file_diagrams)) {
+                if (key.includes(fileName) || key.endsWith(fileName)) {
+                    fileDiagrams = diagrams;
+                    console.log(`Found diagrams using path match: ${key}`);
+                    break;
+                }
+            }
+        }
+        
+        // Last resort: try to find by index if file_diagrams is an array (shouldn't be, but just in case)
+        if (!fileDiagrams && Array.isArray(data.file_diagrams) && fileIndex < data.file_diagrams.length) {
+            fileDiagrams = data.file_diagrams[fileIndex];
+        }
+    }
+    
+    console.log('Selecting file:', filePath);
+    console.log('File diagrams available:', fileDiagrams ? Object.keys(fileDiagrams) : 'None');
+    if (data.file_diagrams) {
+        console.log('All file_diagrams keys:', Object.keys(data.file_diagrams));
+        console.log('Looking for path:', filePath);
+    }
+    
+    // Display file content summary
+    displayFileSummary(fileDetail, fileDiagrams);
+    
+    // Display file-specific diagrams
+    if (fileDiagrams) {
+        // Hide full-project diagrams button when viewing individual file
+        const fullProjectBtn = document.getElementById('full-project-diagrams-btn');
+        if (fullProjectBtn) {
+            fullProjectBtn.style.display = 'none';
+        }
+        
+        displayFileDiagrams(fileDiagrams, filePath);
+    } else {
+        console.warn('No diagrams found for file:', filePath);
+        console.warn('Available file_diagrams keys:', data.file_diagrams ? Object.keys(data.file_diagrams) : 'None');
+        // Hide diagrams section if no diagrams available
+        const diagramsSection = document.getElementById('diagrams-section');
+        if (diagramsSection) {
+            diagramsSection.style.display = 'none';
+        }
+    }
+}
+
+function displayFileSummary(fileDetail, fileDiagrams) {
+    const summaryView = document.getElementById('summary-view');
+    const filePath = fileDetail.path || fileDetail.absolute_path || 'Unknown';
+    const functions = fileDetail.functions || [];
+    const classes = fileDetail.classes || [];
+    const summary = fileDetail.summary || {};
+    const linesOfCode = fileDetail.lines_of_code || summary.total_lines || 0;
+    
+    let html = `
+        <div style="margin-bottom: 30px;">
+            <h2 style="color: #60a5fa; margin-bottom: 20px; font-size: 1.8rem; font-weight: 700;">📄 ${filePath}</h2>
+            <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 20px; margin-bottom: 30px;">
+                <div style="padding: 20px; background: rgba(59, 130, 246, 0.1); border-radius: 12px; border-left: 4px solid #3b82f6; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);">
+                    <div style="color: #94a3b8; font-size: 0.85rem; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Total Lines</div>
+                    <div style="color: #e2e8f0; font-size: 2rem; font-weight: 700;">${linesOfCode.toLocaleString()}</div>
+                    <div style="color: #64748b; font-size: 0.8rem; margin-top: 5px;">Lines of code</div>
+                </div>
+                <div style="padding: 20px; background: rgba(59, 130, 246, 0.1); border-radius: 12px; border-left: 4px solid #3b82f6; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);">
+                    <div style="color: #94a3b8; font-size: 0.85rem; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Functions</div>
+                    <div style="color: #e2e8f0; font-size: 2rem; font-weight: 700;">${functions.length}</div>
+                    <div style="color: #64748b; font-size: 0.8rem; margin-top: 5px;">Functions found</div>
+                </div>
+                <div style="padding: 20px; background: rgba(59, 130, 246, 0.1); border-radius: 12px; border-left: 4px solid #3b82f6; box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);">
+                    <div style="color: #94a3b8; font-size: 0.85rem; margin-bottom: 8px; text-transform: uppercase; letter-spacing: 0.5px; font-weight: 600;">Classes</div>
+                    <div style="color: #e2e8f0; font-size: 2rem; font-weight: 700;">${classes.length}</div>
+                    <div style="color: #64748b; font-size: 0.8rem; margin-top: 5px;">Classes found</div>
+                </div>
+            </div>
+        </div>
+        
+        ${functions.length > 0 ? `
+        <div style="margin-bottom: 30px;">
+            <h3 style="color: #60a5fa; margin-bottom: 15px; font-size: 1.3rem;">🔧 Functions</h3>
+            <div style="display: grid; gap: 12px;">
+                ${functions.map(func => `
+                    <div style="padding: 15px; background: rgba(30, 41, 59, 0.6); border-radius: 10px; border-left: 3px solid #3b82f6; transition: all 0.2s;" onmouseover="this.style.background='rgba(59, 130, 246, 0.15)'" onmouseout="this.style.background='rgba(30, 41, 59, 0.6)'">
+                        <div style="color: #e2e8f0; font-family: 'Fira Code', monospace; font-weight: 600; font-size: 1rem;">${func.name}(${func.parameters ? func.parameters.join(', ') : ''})</div>
+                        ${func.docstring ? `<div style="color: #94a3b8; font-size: 0.9rem; margin-top: 8px; line-height: 1.5;">${func.docstring.substring(0, 150)}${func.docstring.length > 150 ? '...' : ''}</div>` : ''}
+                    </div>
+                `).join('')}
+            </div>
+        </div>
+        ` : ''}
+    `;
+    
+    summaryView.innerHTML = html;
+}
+
+function displayFileDiagrams(fileDiagrams, filePath) {
+    const diagramsSection = document.getElementById('diagrams-section');
+    if (!diagramsSection) return;
+    
+    diagramsSection.style.display = 'block';
+    
+    // Use the same rendering approach as displayDiagrams
+    const renderDiagram = (elementId, diagramCode) => {
+        const element = document.getElementById(elementId);
+        if (!element || !diagramCode) return;
+        
+        // Clean the diagram code - remove markdown code fences
+        let cleanCode = diagramCode.replace(/```mermaid\n?/g, '').replace(/```\n?/g, '').trim();
+        
+        // Check if Mermaid is loaded
+        if (typeof mermaid === 'undefined') {
+            element.innerHTML = '<p style="color: #c33;">Mermaid.js library is loading. Please refresh the page.</p>';
+            return;
+        }
+        
+        // Initialize Mermaid if not already done
+        if (!window.mermaidInitialized) {
+            try {
+                mermaid.initialize({ 
+                    startOnLoad: false,
+                    theme: 'default',
+                    flowchart: { useMaxWidth: true, htmlLabels: true },
+                    sequence: { diagramMarginX: 50, diagramMarginY: 10 },
+                    graph: { useMaxWidth: true, htmlLabels: true }
+                });
+                window.mermaidInitialized = true;
+            } catch (err) {
+                console.error('Error initializing Mermaid:', err);
+            }
+        }
+        
+        // Clear the element first
+        element.innerHTML = '';
+        
+        // Ensure the element has the mermaid class
+        element.classList.add('mermaid');
+        
+        // Set the diagram code as text content (Mermaid will parse this)
+        element.textContent = cleanCode;
+        
+        // Render the diagram using mermaid.render for more reliable rendering
+        setTimeout(() => {
+            try {
+                // Use mermaid.render which is more reliable for v10+
+                if (typeof mermaid.render === 'function') {
+                    const uniqueId = `mermaid-${elementId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+                    mermaid.render(uniqueId, cleanCode).then(({ svg, bindFunctions }) => {
+                        element.innerHTML = svg;
+                        if (bindFunctions) {
+                            bindFunctions(element);
+                        }
+                        console.log(`Successfully rendered ${elementId} using mermaid.render`);
+                    }).catch(err => {
+                        console.error(`Error rendering ${elementId} with mermaid.render:`, err);
+                        // Fallback to mermaid.run
+                        if (typeof mermaid.run === 'function') {
+                            element.textContent = cleanCode;
+                            mermaid.run({ 
+                                nodes: [element],
+                                suppressErrors: false
+                            }).then(() => {
+                                console.log(`Successfully rendered ${elementId} using mermaid.run`);
+                            }).catch(runErr => {
+                                console.error('mermaid.run also failed:', runErr);
+                                element.innerHTML = `<div style="color: #c33; padding: 20px;">Error rendering diagram: ${runErr.message || 'Unknown error'}</div>`;
+                            });
+                        } else {
+                            element.innerHTML = `<div style="color: #c33; padding: 20px;">Error rendering diagram: ${err.message || 'Unknown error'}</div>`;
+                        }
+                    });
+                } else if (typeof mermaid.run === 'function') {
+                    // Fallback to mermaid.run
+                    mermaid.run({ 
+                        nodes: [element],
+                        suppressErrors: false
+                    }).then(() => {
+                        console.log(`Successfully rendered ${elementId} using mermaid.run`);
+                    }).catch(err => {
+                        console.error(`Error rendering ${elementId}:`, err);
+                        element.innerHTML = `<div style="color: #c33; padding: 20px;">Error rendering diagram: ${err.message || 'Unknown error'}</div>`;
+                    });
+                } else if (typeof mermaid.init === 'function') {
+                    // Fallback for older Mermaid versions
+                    mermaid.init(undefined, element);
+                } else {
+                    element.innerHTML = '<p style="color: #c33;">Mermaid.js version not supported. Please update to v10+.</p>';
+                }
+            } catch (err) {
+                console.error(`Error rendering ${elementId}:`, err);
+                element.innerHTML = `<p style="color: #c33;">Error rendering diagram: ${err.message}</p>`;
+            }
+        }, 100);
+    };
+    
+    // Render all file-specific diagrams
+    console.log('Rendering file diagrams for:', filePath);
+    console.log('Available diagrams:', Object.keys(fileDiagrams));
+    
+    if (fileDiagrams.architecture) {
+        console.log('Rendering architecture diagram');
+        renderDiagram('architecture-mermaid', fileDiagrams.architecture);
+    }
+    
+    if (fileDiagrams.structure) {
+        console.log('Rendering structure diagram');
+        renderDiagram('structure-mermaid', fileDiagrams.structure);
+    }
+    
+    if (fileDiagrams.sequence) {
+        console.log('Rendering sequence diagram');
+        renderDiagram('sequence-mermaid', fileDiagrams.sequence);
+    }
+    
+    if (fileDiagrams.dependencies) {
+        console.log('Rendering dependencies diagram');
+        console.log('Dependencies diagram code:', fileDiagrams.dependencies.substring(0, 200));
+        renderDiagram('dependencies-mermaid', fileDiagrams.dependencies);
+    }
+    
+    // Display flowchart (combined for the file, or first function's flowchart)
+    if (fileDiagrams.flowchart) {
+        console.log('Rendering flowchart');
+        renderDiagram('flowchart-mermaid', fileDiagrams.flowchart);
+    } else if (fileDiagrams.flowcharts && Object.keys(fileDiagrams.flowcharts).length > 0) {
+        // Fallback to first function flowchart if no combined flowchart
+        const firstFlowchart = Object.values(fileDiagrams.flowcharts)[0];
+        if (firstFlowchart) {
+            console.log('Rendering first function flowchart');
+            renderDiagram('flowchart-mermaid', firstFlowchart);
+        }
+    }
+    
+    // Switch to architecture tab by default and show it
+    switchDiagramTab('architecture', null);
+}
+
+function showFullProjectDiagrams() {
+    if (!currentData || !currentData.diagrams) {
+        showError('Full-project diagrams are not available.');
+        return;
+    }
+    
+    // Show warning about clutter
+    const confirmed = confirm(
+        '⚠️ Warning: Full-project diagrams may be cluttered for large projects.\n\n' +
+        'This will show combined diagrams for all files in the project.\n\n' +
+        'For better clarity, consider viewing individual file diagrams from the sidebar.\n\n' +
+        'Do you want to proceed?'
+    );
+    
+    if (!confirmed) {
+        return;
+    }
+    
+    // Display full-project diagrams
+    displayDiagrams(currentData.diagrams);
+    
+    // Show diagrams section
+    const diagramsSection = document.getElementById('diagrams-section');
+    if (diagramsSection) {
+        diagramsSection.style.display = 'block';
+    }
+    
+    // Switch to architecture tab
+    switchDiagramTab('architecture', null);
+}
+
+function toggleSidebar() {
+    const sidebar = document.getElementById('file-explorer-sidebar');
+    if (!sidebar) return;
+    
+    sidebarCollapsed = !sidebarCollapsed;
+    
+    if (sidebarCollapsed) {
+        sidebar.style.width = '60px';
+        sidebar.querySelector('.sidebar-content').style.display = 'none';
+    } else {
+        sidebar.style.width = '300px';
+        sidebar.querySelector('.sidebar-content').style.display = 'block';
+    }
+}
+
+function setupDiagramFileSelector(fileDetails, data) {
+    const fileSelector = document.getElementById('diagram-file-selector');
+    const fileSelect = document.getElementById('diagram-file-select');
+    const diagramsSection = document.getElementById('diagrams-section');
+    
+    if (!fileSelector || !fileSelect || !fileDetails || fileDetails.length === 0) {
+        return;
+    }
+    
+    // Show the diagrams section
+    if (diagramsSection) {
+        diagramsSection.style.display = 'block';
+        // Scroll to diagrams section smoothly
+        setTimeout(() => {
+            diagramsSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }, 100);
+    }
+    
+    // Show the file selector for projects
+    fileSelector.style.display = 'block';
+    
+    // Clear existing options
+    fileSelect.innerHTML = '<option value="">Select a file...</option>';
+    
+    // Add file options
+    fileDetails.forEach((fileDetail, index) => {
+        const filePath = fileDetail.path || fileDetail.absolute_path || 'Unknown';
+        const fileName = filePath.split('/').pop() || filePath.split('\\').pop() || filePath;
+        const option = document.createElement('option');
+        option.value = index;
+        option.textContent = fileName;
+        option.title = filePath;
+        fileSelect.appendChild(option);
+    });
+    
+    // Store file details for later use
+    window.diagramFileDetails = fileDetails;
+    window.diagramFileData = data;
+    
+    // Show a message in the diagram containers to prompt user to select a file
+    const diagramContainers = ['architecture-mermaid', 'sequence-mermaid', 'dependencies-mermaid', 'flowchart-mermaid', 'structure-mermaid'];
+    diagramContainers.forEach(containerId => {
+        const container = document.getElementById(containerId);
+        if (container) {
+            container.innerHTML = '<div style="padding: 40px; text-align: center; color: #94a3b8;"><p style="font-size: 1.1rem; margin-bottom: 10px;">📊 Select a file from the dropdown above to view diagrams</p><p style="font-size: 0.9rem; color: #64748b;">Each file has its own Architecture, Sequence, Dependencies, Flowchart, and Structure diagrams</p></div>';
+        }
+    });
+}
+
+function switchDiagramFile(event) {
+    const select = event.target;
+    const fileIndex = select.value;
+    
+    if (!fileIndex || fileIndex === '') {
+        return;
+    }
+    
+    const fileDetails = window.diagramFileDetails;
+    const data = window.diagramFileData;
+    
+    if (!fileDetails || !data || !data.file_diagrams) {
+        showError('File diagrams not available.');
+        return;
+    }
+    
+    const fileDetail = fileDetails[parseInt(fileIndex)];
+    if (!fileDetail) {
+        showError('File not found.');
+        return;
+    }
+    
+    // Get file-specific diagrams
+    const filePath = fileDetail.path || fileDetail.absolute_path || 'Unknown';
+    let fileDiagrams = data.file_diagrams[filePath];
+    
+    // Try alternative path matching if not found
+    if (!fileDiagrams) {
+        const altPath = fileDetail.absolute_path || fileDetail.path;
+        fileDiagrams = data.file_diagrams[altPath];
+    }
+    
+    // If still not found, try matching by filename
+    if (!fileDiagrams) {
+        const fileName = filePath.split('/').pop() || filePath.split('\\').pop();
+        for (const [key, diagrams] of Object.entries(data.file_diagrams)) {
+            if (key.includes(fileName) || key.endsWith(fileName)) {
+                fileDiagrams = diagrams;
+                break;
+            }
+        }
+    }
+    
+    if (!fileDiagrams) {
+        showError(`No diagrams found for file: ${filePath}`);
+        return;
+    }
+    
+    // Show diagrams section
+    const diagramsSection = document.getElementById('diagrams-section');
+    if (diagramsSection) {
+        diagramsSection.style.display = 'block';
+        // Scroll to diagrams section smoothly
+        setTimeout(() => {
+            diagramsSection.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }, 100);
+    }
+    
+    // Display the file's diagrams (all 5 types: architecture, sequence, dependencies, flowchart, structure)
+    displayFileDiagrams(fileDiagrams, filePath);
+    
+    // Update sidebar selection if sidebar exists
+    if (currentProjectFileDetails && currentProjectFileDetails === fileDetails) {
+        selectFile(parseInt(fileIndex), fileDetail, data);
     }
 }
 

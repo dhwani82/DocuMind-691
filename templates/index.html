@@ -190,20 +190,40 @@
             </div>
 
             <div class="output-section" id="output-section" style="display: none;">
-                <div class="output-header">
-                    <h2>Analysis Results</h2>
-                    <div class="output-actions">
-                        <button class="action-btn" onclick="toggleView()">
-                            <span id="view-toggle">View JSON</span>
+                <!-- File Explorer Sidebar (only shown for projects) -->
+                <div id="file-explorer-sidebar" class="file-explorer-sidebar" style="display: none;">
+                    <div class="sidebar-header">
+                        <h3>📁 Files</h3>
+                        <button class="sidebar-toggle" onclick="toggleSidebar()" title="Toggle Sidebar">
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="9 18 15 12 9 6"></polyline>
+                            </svg>
                         </button>
-                        <button class="action-btn" onclick="copyToClipboard(event)">
-                            <span>Copy JSON</span>
-                        </button>
+                    </div>
+                    <div class="sidebar-content" id="file-explorer-list">
+                        <!-- File list will be populated here -->
                     </div>
                 </div>
 
-                <div id="summary-view" class="summary-view">
-                    <!-- Summary will be inserted here -->
+                <div class="results-main-content" id="results-main-content">
+                    <div class="output-header">
+                        <h2>Analysis Results</h2>
+                        <div class="output-actions">
+                            <button id="full-project-diagrams-btn" class="action-btn" onclick="showFullProjectDiagrams()" style="display: none;">
+                                <span>📊 Generate Full-Project Diagrams</span>
+                            </button>
+                            <button class="action-btn" onclick="toggleView()">
+                                <span id="view-toggle">View JSON</span>
+                            </button>
+                            <button class="action-btn" onclick="copyToClipboard(event)">
+                                <span>Copy JSON</span>
+                            </button>
+                        </div>
+                    </div>
+
+                    <div id="summary-view" class="summary-view">
+                        <!-- Summary will be inserted here -->
+                    </div>
                 </div>
 
                 <div id="json-view" class="json-view" style="display: none;">
@@ -213,8 +233,35 @@
 
             <div class="diagrams-section" id="diagrams-section" style="display: none;">
                 <div class="diagrams-header">
-                    <h2>Code Diagrams</h2>
-                    <p class="diagrams-subtitle">Visual representation of code structure and relationships</p>
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 20px;">
+                        <div>
+                            <h2>Code Diagrams</h2>
+                            <p class="diagrams-subtitle">Visual representation of code structure and relationships</p>
+                        </div>
+                        <!-- File selector dropdown (only shown for projects) -->
+                        <div id="diagram-file-selector" style="display: none;">
+                            <label style="display: block; margin-bottom: 8px; color: #cbd5e1; font-weight: 600; font-size: 0.9rem;">Select File:</label>
+                            <select id="diagram-file-select" onchange="switchDiagramFile(event)" style="
+                                padding: 10px 16px;
+                                border: 2px solid #334155;
+                                border-radius: 8px;
+                                background: #0f172a;
+                                color: #e2e8f0;
+                                font-family: 'Fira Code', 'Courier New', monospace;
+                                font-size: 0.9rem;
+                                cursor: pointer;
+                                transition: all 0.3s;
+                                appearance: none;
+                                min-width: 250px;
+                                background-image: url('data:image/svg+xml;utf8,<svg xmlns=\\'http://www.w3.org/2000/svg\\' width=\\'12\\' height=\\'12\\' viewBox=\\'0 0 12 12\\'><path fill=\\'%2360a5fa\\' d=\\'M6 9L1 4h10z\\'/></svg>');
+                                background-repeat: no-repeat;
+                                background-position: right 12px center;
+                                padding-right: 40px;
+                            " onfocus="this.style.borderColor='#3b82f6'; this.style.boxShadow='0 0 0 4px rgba(59, 130, 246, 0.2)'" onblur="this.style.borderColor='#334155'; this.style.boxShadow='none'">
+                                <option value="">Select a file...</option>
+                            </select>
+                        </div>
+                    </div>
                 </div>
 
                 <div class="diagram-tabs">
