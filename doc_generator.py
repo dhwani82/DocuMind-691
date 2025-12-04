@@ -372,6 +372,367 @@ This document describes the architecture and structure of the codebase.
         match = re.match(r'class\s+(\w+)', line)
         return match.group(1) if match else ""
     
+    def generate_project_documentation(self, project_data: Dict[str, Any]) -> Dict[str, str]:
+        """Generate comprehensive documentation for a project.
+        
+        Args:
+            project_data: Project data from scan_project() containing:
+                - summary: Aggregated statistics
+                - file_details: List of parsed file information
+                - functions: All functions from all files
+                - classes: All classes from all files
+                - tables: All SQL tables (if any)
+                - github_repo_url: GitHub URL (if applicable)
+                - cloned_path: Local clone path (if applicable)
+                
+        Returns:
+            Dictionary with 'docstrings', 'readme', and 'architecture' keys
+        """
+        if self.use_llm:
+            return self._generate_project_docs_with_llm(project_data)
+        else:
+            return self._generate_project_docs_with_templates(project_data)
+    
+    def _generate_project_docs_with_llm(self, project_data: Dict[str, Any]) -> Dict[str, str]:
+        """Generate project documentation using LLM."""
+        try:
+            # Generate README
+            readme = self._generate_project_readme_llm(project_data)
+            
+            # Generate ARCHITECTURE
+            architecture = self._generate_project_architecture_llm(project_data)
+            
+            # Generate docstrings summary (for all files)
+            docstrings = self._generate_project_docstrings_llm(project_data)
+            
+            return {
+                'docstrings': docstrings,
+                'readme': readme,
+                'architecture': architecture
+            }
+        except Exception as e:
+            # Fallback to templates if LLM fails
+            return self._generate_project_docs_with_templates(project_data)
+    
+    def _generate_project_readme_llm(self, project_data: Dict[str, Any]) -> str:
+        """Generate README.md for project using LLM."""
+        summary = project_data.get('summary', {})
+        file_details = project_data.get('file_details', [])
+        functions = project_data.get('functions', [])
+        classes = project_data.get('classes', [])
+        github_repo_url = project_data.get('github_repo_url', '')
+        detected_languages = project_data.get('detected_languages', [])
+        
+        # Build file structure overview
+        file_structure = "\n".join([
+            f"- {fd.get('path', 'unknown')} ({fd.get('language', 'unknown')}) - {fd.get('functions_count', 0)} functions, {fd.get('classes_count', 0)} classes"
+            for fd in file_details[:20]  # First 20 files
+        ])
+        if len(file_details) > 20:
+            file_structure += f"\n... and {len(file_details) - 20} more files"
+        
+        prompt = f"""Generate a professional README.md file for this project based on the analysis.
+
+Project Statistics:
+- Total Files: {summary.get('total_files', 0)}
+- Total Lines: {summary.get('total_lines', 0)}
+- Total Functions: {summary.get('total_functions', 0)} ({summary.get('sync_functions', 0)} sync, {summary.get('async_functions', 0)} async)
+- Total Classes: {summary.get('total_classes', 0)} with {summary.get('total_methods', 0)} methods
+- Total Tables: {summary.get('total_tables', 0)} (SQL)
+- Languages: {', '.join(detected_languages) if detected_languages else 'Mixed'}
+
+{f'GitHub Repository: {github_repo_url}' if github_repo_url else ''}
+
+File Structure (sample):
+{file_structure}
+
+Key Functions (sample):
+{chr(10).join([f"- {f.get('name', 'unknown')} (line {f.get('line', 'N/A')})" for f in functions[:15]])}
+
+Key Classes (sample):
+{chr(10).join([f"- {c.get('name', 'unknown')} (line {c.get('line', 'N/A')})" for c in classes[:10]])}
+
+Create a comprehensive README.md that includes:
+1. Project title and description
+2. Features overview
+3. Installation instructions
+4. Usage examples
+5. Project structure
+6. Key components (functions, classes, modules)
+7. Requirements/dependencies
+8. Contributing guidelines (if applicable)
+9. License section (if applicable)
+
+Format it as clean, professional Markdown. Be specific about what the project does based on the structure and statistics."""
+
+        response = self.client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a technical writer specializing in software documentation for multi-file projects."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3
+        )
+        return response.choices[0].message.content.strip()
+    
+    def _generate_project_architecture_llm(self, project_data: Dict[str, Any]) -> str:
+        """Generate ARCHITECTURE.md for project using LLM."""
+        summary = project_data.get('summary', {})
+        file_details = project_data.get('file_details', [])
+        functions = project_data.get('functions', [])
+        classes = project_data.get('classes', [])
+        tables = project_data.get('tables', [])
+        imports = project_data.get('imports', [])
+        detected_languages = project_data.get('detected_languages', [])
+        
+        # Build dependency graph
+        dependencies = set()
+        for imp in imports:
+            if imp.get('module'):
+                dependencies.add(imp['module'].split('.')[0])
+        
+        prompt = f"""Generate a comprehensive ARCHITECTURE.md document for this project.
+
+Project Overview:
+- Total Files: {summary.get('total_files', 0)}
+- Total Lines: {summary.get('total_lines', 0)}
+- Languages: {', '.join(detected_languages) if detected_languages else 'Mixed'}
+- Total Functions: {summary.get('total_functions', 0)}
+- Total Classes: {summary.get('total_classes', 0)}
+- Total Tables: {summary.get('total_tables', 0)}
+
+Key Dependencies:
+{', '.join(sorted(dependencies)[:20])}
+
+File Structure:
+{chr(10).join([f"- {fd.get('path', 'unknown')}: {fd.get('language', 'unknown')} ({fd.get('functions_count', 0)} functions, {fd.get('classes_count', 0)} classes)" for fd in file_details[:15]])}
+
+Create a detailed architecture document that includes:
+1. System Overview
+2. Architecture Patterns
+3. Component Structure
+4. Data Flow
+5. Key Modules and Their Responsibilities
+6. Dependencies and External Libraries
+7. Database Schema (if applicable)
+8. API Structure (if applicable)
+9. Design Decisions
+10. Future Improvements
+
+Format it as professional Markdown documentation."""
+
+        response = self.client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a software architect specializing in system design documentation."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3
+        )
+        return response.choices[0].message.content.strip()
+    
+    def _generate_project_docstrings_llm(self, project_data: Dict[str, Any]) -> str:
+        """Generate docstrings summary for project using LLM."""
+        summary = project_data.get('summary', {})
+        functions = project_data.get('functions', [])
+        classes = project_data.get('classes', [])
+        
+        prompt = f"""Generate a comprehensive documentation summary for this project's codebase.
+
+Project Statistics:
+- Total Functions: {summary.get('total_functions', 0)}
+- Total Classes: {summary.get('total_classes', 0)}
+- Total Methods: {summary.get('total_methods', 0)}
+
+Key Functions:
+{chr(10).join([f"- {f.get('name', 'unknown')} (line {f.get('line', 'N/A')}, file: {f.get('file', 'unknown')})" for f in functions[:30]])}
+
+Key Classes:
+{chr(10).join([f"- {c.get('name', 'unknown')} (line {c.get('line', 'N/A')}, file: {c.get('file', 'unknown')})" for c in classes[:20]])}
+
+Create a comprehensive documentation guide that includes:
+1. Overview of all major functions and their purposes
+2. Class hierarchy and relationships
+3. Function signatures and parameters
+4. Return types and behaviors
+5. Usage examples for key functions
+6. Best practices for using this codebase
+
+Format it as professional documentation in Markdown."""
+
+        response = self.client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": "You are a documentation expert specializing in API and codebase documentation."},
+                {"role": "user", "content": prompt}
+            ],
+            temperature=0.3
+        )
+        return response.choices[0].message.content.strip()
+    
+    def _generate_project_docs_with_templates(self, project_data: Dict[str, Any]) -> Dict[str, str]:
+        """Generate project documentation using templates."""
+        summary = project_data.get('summary', {})
+        file_details = project_data.get('file_details', [])
+        functions = project_data.get('functions', [])
+        classes = project_data.get('classes', [])
+        tables = project_data.get('tables', [])
+        imports = project_data.get('imports', [])
+        github_repo_url = project_data.get('github_repo_url', '')
+        detected_languages = project_data.get('detected_languages', [])
+        
+        # Extract dependencies
+        dependencies = set()
+        for imp in imports:
+            if imp.get('module'):
+                dependencies.add(imp['module'].split('.')[0])
+        
+        # Generate README
+        readme = f"""# Project Documentation
+
+## Overview
+
+This project contains {summary.get('total_files', 0)} files with {summary.get('total_lines', 0)} lines of code.
+
+{f'**GitHub Repository**: [{github_repo_url}]({github_repo_url})' if github_repo_url else ''}
+
+## Statistics
+
+- **Total Files**: {summary.get('total_files', 0)}
+- **Total Lines**: {summary.get('total_lines', 0):,}
+- **Total Functions**: {summary.get('total_functions', 0)} ({summary.get('sync_functions', 0)} sync, {summary.get('async_functions', 0)} async)
+- **Total Classes**: {summary.get('total_classes', 0)} with {summary.get('total_methods', 0)} methods
+- **Total Tables**: {summary.get('total_tables', 0)}
+- **Languages**: {', '.join(detected_languages) if detected_languages else 'Mixed'}
+
+## Project Structure
+
+"""
+        
+        for file_detail in file_details[:30]:  # First 30 files
+            path = file_detail.get('path', 'unknown')
+            lang = file_detail.get('language', 'unknown')
+            func_count = file_detail.get('functions_count', 0)
+            class_count = file_detail.get('classes_count', 0)
+            readme += f"- `{path}` ({lang}) - {func_count} functions, {class_count} classes\n"
+        
+        if len(file_details) > 30:
+            readme += f"\n... and {len(file_details) - 30} more files\n"
+        
+        readme += f"""
+## Installation
+
+```bash
+pip install {' '.join(sorted(dependencies)[:20]) if dependencies else '# No external dependencies detected'}
+```
+
+## Key Components
+
+### Functions
+
+"""
+        
+        for func in functions[:20]:  # First 20 functions
+            name = func.get('name', 'unknown')
+            line = func.get('line', 'N/A')
+            file_path = func.get('file', 'unknown')
+            readme += f"- **{name}** (line {line}, `{file_path}`)\n"
+        
+        readme += "\n### Classes\n\n"
+        
+        for cls in classes[:15]:  # First 15 classes
+            name = cls.get('name', 'unknown')
+            line = cls.get('line', 'N/A')
+            file_path = cls.get('file', 'unknown')
+            methods = cls.get('methods', [])
+            readme += f"- **{name}** (line {line}, `{file_path}`) - {len(methods)} methods\n"
+        
+        # Generate Architecture
+        architecture = f"""# Architecture Documentation
+
+## System Overview
+
+This project is a {', '.join(detected_languages) if detected_languages else 'multi-language'} codebase with {summary.get('total_files', 0)} files.
+
+## Component Structure
+
+### Files by Language
+
+"""
+        
+        # Group files by language
+        files_by_lang = {}
+        for fd in file_details:
+            lang = fd.get('language', 'unknown')
+            if lang not in files_by_lang:
+                files_by_lang[lang] = []
+            files_by_lang[lang].append(fd)
+        
+        for lang, files in files_by_lang.items():
+            architecture += f"\n#### {lang.upper()}\n\n"
+            for fd in files[:10]:
+                architecture += f"- `{fd.get('path', 'unknown')}`\n"
+            if len(files) > 10:
+                architecture += f"- ... and {len(files) - 10} more {lang} files\n"
+        
+        architecture += f"""
+## Dependencies
+
+{', '.join(sorted(dependencies)[:30]) if dependencies else 'No external dependencies detected'}
+
+## Database Schema
+
+"""
+        
+        if tables:
+            for table in tables[:10]:
+                name = table.get('name', 'unknown')
+                columns = table.get('columns', [])
+                architecture += f"\n### {name}\n\n"
+                for col in columns[:10]:
+                    col_name = col.get('name', 'unknown')
+                    col_type = col.get('type', 'unknown')
+                    is_pk = ' (PRIMARY KEY)' if col.get('is_primary_key') else ''
+                    architecture += f"- `{col_name}`: {col_type}{is_pk}\n"
+        else:
+            architecture += "No database tables found.\n"
+        
+        # Generate docstrings summary
+        docstrings = f"""# Code Documentation Summary
+
+## Functions
+
+"""
+        
+        for func in functions[:30]:
+            name = func.get('name', 'unknown')
+            params = func.get('parameters', [])
+            file_path = func.get('file', 'unknown')
+            line = func.get('line', 'N/A')
+            docstrings += f"\n### {name}\n\n"
+            docstrings += f"- **File**: `{file_path}` (line {line})\n"
+            docstrings += f"- **Parameters**: {', '.join([p.get('name', p) if isinstance(p, dict) else str(p) for p in params]) if params else 'None'}\n"
+        
+        docstrings += "\n## Classes\n\n"
+        
+        for cls in classes[:20]:
+            name = cls.get('name', 'unknown')
+            methods = cls.get('methods', [])
+            file_path = cls.get('file', 'unknown')
+            line = cls.get('line', 'N/A')
+            docstrings += f"\n### {name}\n\n"
+            docstrings += f"- **File**: `{file_path}` (line {line})\n"
+            docstrings += f"- **Methods**: {len(methods)}\n"
+            for method in methods[:5]:
+                method_name = method.get('name', 'unknown')
+                docstrings += f"  - `{method_name}`\n"
+        
+        return {
+            'docstrings': docstrings,
+            'readme': readme,
+            'architecture': architecture
+        }
+    
     def _find_function_info(self, name: str, parse_result: Dict[str, Any]) -> Optional[Dict]:
         """Find function information in parse result."""
         for func in parse_result.get('functions', []):

@@ -1117,3 +1117,123 @@ header h1 {
     }
 }
 
+/* Parser Mode Selection Styles */
+.parser-mode-selection label {
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.parser-mode-selection label:hover {
+    background: rgba(59, 130, 246, 0.1) !important;
+    color: #60a5fa !important;
+    transform: translateY(-2px);
+}
+
+.parser-mode-selection input[type="radio"]:checked + span {
+    color: #60a5fa;
+}
+
+.parser-mode-selection label:has(input[type="radio"]:checked) {
+    background: rgba(59, 130, 246, 0.15) !important;
+    color: #60a5fa !important;
+    border: 1px solid rgba(59, 130, 246, 0.3);
+}
+
+/* File Expander Styles for Project View */
+.file-expander {
+    transition: all 0.3s ease;
+}
+
+.file-expander:hover {
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.2);
+}
+
+.file-expander-header {
+    user-select: none;
+}
+
+.file-expander-header:hover {
+    background: linear-gradient(135deg, #334155 0%, #1e293b 100%) !important;
+}
+
+.file-expander-icon {
+    color: #60a5fa;
+    font-size: 0.8rem;
+    transition: transform 0.3s ease;
+}
+
+.file-expander-content {
+    animation: slideDown 0.3s ease;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        max-height: 0;
+    }
+    to {
+        opacity: 1;
+        max-height: 2000px;
+    }
+}
+
+/* Metric Cards (Streamlit-style) for Project Summary */
+.metric-card {
+    position: relative;
+    padding: 24px;
+    background: linear-gradient(135deg, #334155 0%, #1e293b 100%);
+    border-radius: 12px;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.metric-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 16px rgba(59, 130, 246, 0.3);
+    border-color: rgba(59, 130, 246, 0.4);
+}
+
+.metric-card h3 {
+    color: #94a3b8;
+    font-size: 0.8rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 12px;
+    font-weight: 600;
+}
+
+.metric-card .value {
+    font-size: 2.5rem;
+    font-weight: 800;
+    color: #e2e8f0;
+    background: linear-gradient(135deg, #60a5fa 0%, #3b82f6 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+    line-height: 1.2;
+    margin-bottom: 4px;
+}
+
+/* File Selectbox Styles */
+#file-selectbox {
+    transition: all 0.3s ease;
+}
+
+#file-selectbox:hover {
+    border-color: #475569 !important;
+    background: #1e293b !important;
+}
+
+#file-selectbox:focus {
+    outline: none;
+    border-color: #3b82f6 !important;
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2) !important;
+    background: #1e293b !important;
+}
+
+#file-selectbox option {
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 10px;
+}
+

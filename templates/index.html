@@ -16,10 +16,27 @@
 
         <div class="main-content">
             <div class="input-section">
-                <div class="tabs">
-                    <button class="tab-btn active" onclick="switchTab('paste')">Paste Code</button>
-                    <button class="tab-btn" onclick="switchTab('upload')">Upload File</button>
+                <!-- Parser Mode Selection -->
+                <div class="parser-mode-selection" style="margin-bottom: 20px; padding: 20px; background: linear-gradient(135deg, #334155 0%, #1e293b 100%); border-radius: 16px; border: 1px solid rgba(59, 130, 246, 0.2); box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);">
+                    <label style="display: block; margin-bottom: 15px; font-weight: 700; color: #60a5fa; font-size: 1rem; text-transform: uppercase; letter-spacing: 1.2px;">Parser Mode:</label>
+                    <div style="display: flex; gap: 30px;">
+                        <label style="display: flex; align-items: center; cursor: pointer; padding: 10px 15px; border-radius: 8px; transition: all 0.3s; color: #cbd5e1;">
+                            <input type="radio" name="parser-mode" value="single" checked onchange="switchParserMode('single')" style="margin-right: 10px; cursor: pointer; accent-color: #3b82f6; width: 18px; height: 18px;">
+                            <span style="font-weight: 600; font-size: 1rem;">Single File</span>
+                        </label>
+                        <label style="display: flex; align-items: center; cursor: pointer; padding: 10px 15px; border-radius: 8px; transition: all 0.3s; color: #cbd5e1;">
+                            <input type="radio" name="parser-mode" value="project" onchange="switchParserMode('project')" style="margin-right: 10px; cursor: pointer; accent-color: #3b82f6; width: 18px; height: 18px;">
+                            <span style="font-weight: 600; font-size: 1rem;">Project / Folder</span>
+                        </label>
+                    </div>
                 </div>
+
+                <!-- Single File Mode -->
+                <div id="single-file-mode">
+                    <div class="tabs">
+                        <button class="tab-btn active" onclick="switchTab('paste')">Paste Code</button>
+                        <button class="tab-btn" onclick="switchTab('upload')">Upload File</button>
+                    </div>
 
                 <div id="paste-tab" class="tab-content active">
                     <textarea id="code-input" placeholder="Paste your Python code here..."></textarea>
@@ -40,24 +57,135 @@
                     </div>
                 </div>
 
-                <div class="action-buttons">
-                    <button class="parse-btn" onclick="parseCode()">
-                        <span>Analyze Code</span>
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <polyline points="5 12 3 12 12 3 21 12 19 12"></polyline>
-                            <polyline points="19 12 19 22 5 22 5 12"></polyline>
-                        </svg>
-                    </button>
-                    <button class="doc-btn" onclick="generateDocumentation()" id="doc-btn" style="display: none;">
-                        <span>Generate Documentation</span>
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
-                            <polyline points="14 2 14 8 20 8"></polyline>
-                            <line x1="16" y1="13" x2="8" y2="13"></line>
-                            <line x1="16" y1="17" x2="8" y2="17"></line>
-                            <polyline points="10 9 9 9 8 9"></polyline>
-                        </svg>
-                    </button>
+                    <div class="action-buttons">
+                        <button class="parse-btn" onclick="parseCode()">
+                            <span>Analyze Code</span>
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="5 12 3 12 12 3 21 12 19 12"></polyline>
+                                <polyline points="19 12 19 22 5 22 5 12"></polyline>
+                            </svg>
+                        </button>
+                        <button class="doc-btn" onclick="generateDocumentation()" id="doc-btn" style="display: none;">
+                            <span>Generate Documentation</span>
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                                <polyline points="14 2 14 8 20 8"></polyline>
+                                <line x1="16" y1="13" x2="8" y2="13"></line>
+                                <line x1="16" y1="17" x2="8" y2="17"></line>
+                                <polyline points="10 9 9 9 8 9"></polyline>
+                            </svg>
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Project / Folder Mode -->
+                <div id="project-mode" style="display: none;">
+                    <div class="tabs" style="margin-bottom: 20px;">
+                        <button class="tab-btn active" onclick="switchProjectTab('path')">Local Path</button>
+                        <button class="tab-btn" onclick="switchProjectTab('upload')">Upload Files/Folder</button>
+                        <button class="tab-btn" onclick="switchProjectTab('github')">GitHub Repo</button>
+                    </div>
+
+                    <!-- Local Path Tab -->
+                    <div id="project-path-tab" class="tab-content active">
+                        <div style="padding: 32px; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border-radius: 16px; border: 3px dashed #475569; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4); position: relative; overflow: hidden;">
+                            <div style="position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: radial-gradient(circle, rgba(59, 130, 246, 0.15) 0%, transparent 70%); opacity: 0.5;"></div>
+                            <div style="position: relative; z-index: 1;">
+                                <label style="display: block; margin-bottom: 15px; font-weight: 700; color: #60a5fa; font-size: 1rem; text-transform: uppercase; letter-spacing: 1.2px;">Local Folder Path:</label>
+                                <input 
+                                    type="text" 
+                                    id="folder-path-input" 
+                                    placeholder="Enter absolute path to project folder (e.g., /Users/username/project)"
+                                    style="width: 100%; padding: 16px 20px; border: 2px solid #334155; border-radius: 12px; font-size: 14px; margin-bottom: 20px; background: #0f172a; color: #e2e8f0; transition: all 0.3s; font-family: 'Fira Code', 'Courier New', monospace;"
+                                    onfocus="this.style.borderColor='#3b82f6'; this.style.boxShadow='0 0 0 4px rgba(59, 130, 246, 0.2), 0 4px 16px rgba(59, 130, 246, 0.3)'; this.style.background='#1e293b';"
+                                    onblur="this.style.borderColor='#334155'; this.style.boxShadow='none'; this.style.background='#0f172a';"
+                                >
+                                <button class="parse-btn" onclick="parseProject()" style="width: 100%;">
+                                    <span>Parse Project</span>
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <polyline points="5 12 3 12 12 3 21 12 19 12"></polyline>
+                                        <polyline points="19 12 19 22 5 22 5 12"></polyline>
+                                    </svg>
+                                </button>
+                                <p style="margin-top: 15px; font-size: 0.9rem; color: #94a3b8; text-align: center; font-weight: 400;">
+                                    Enter the absolute path to your project folder on your local machine
+                                </p>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Upload Files/Folder Tab -->
+                    <div id="project-upload-tab" class="tab-content">
+                        <div style="padding: 32px; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border-radius: 16px; border: 3px dashed #475569; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4); position: relative; overflow: hidden;">
+                            <div style="position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: radial-gradient(circle, rgba(59, 130, 246, 0.15) 0%, transparent 70%); opacity: 0.5;"></div>
+                            <div style="position: relative; z-index: 1;">
+                                <div class="upload-area" id="project-upload-area" style="min-height: 200px;">
+                                    <input type="file" id="project-file-input" multiple style="display: none;">
+                                    <div class="upload-placeholder" style="text-align: center; padding: 40px 20px;">
+                                        <svg width="64" height="64" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="margin: 0 auto 20px; color: #60a5fa;">
+                                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path>
+                                            <polyline points="17 8 12 3 7 8"></polyline>
+                                            <line x1="12" y1="3" x2="12" y2="15"></line>
+                                        </svg>
+                                        <p style="font-size: 1.1rem; color: #e2e8f0; margin-bottom: 10px; font-weight: 600;">Upload Project Files or Folder</p>
+                                        <p style="font-size: 0.9rem; color: #94a3b8; margin-bottom: 20px;">Click to browse or drag and drop files/folders</p>
+                                        <div style="display: flex; gap: 10px; justify-content: center; margin-top: 20px;">
+                                            <button onclick="document.getElementById('project-file-input').click()" style="padding: 10px 20px; background: #3b82f6; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; transition: all 0.3s;" onmouseover="this.style.background='#2563eb'" onmouseout="this.style.background='#3b82f6'">
+                                                Select Files
+                                            </button>
+                                            <button onclick="enableFolderUpload()" style="padding: 10px 20px; background: #475569; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 600; transition: all 0.3s;" onmouseover="this.style.background='#334155'" onmouseout="this.style.background='#475569'">
+                                                Select Folder
+                                            </button>
+                                        </div>
+                                        <p class="upload-hint" style="margin-top: 15px; font-size: 0.85rem; color: #64748b;">Supported: .py, .js, .jsx, .java, .c, .cpp, .php, .sql</p>
+                                    </div>
+                                    <div id="project-file-list" style="display: none; margin-top: 20px; padding: 20px; background: rgba(15, 23, 42, 0.5); border-radius: 8px; max-height: 300px; overflow-y: auto;">
+                                        <h4 style="color: #60a5fa; margin-bottom: 15px;">Selected Files:</h4>
+                                        <div id="project-file-list-content"></div>
+                                        <button class="parse-btn" onclick="parseUploadedProject()" style="width: 100%; margin-top: 20px;">
+                                            <span>Parse Uploaded Files</span>
+                                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                                <polyline points="5 12 3 12 12 3 21 12 19 12"></polyline>
+                                                <polyline points="19 12 19 22 5 22 5 12"></polyline>
+                                            </svg>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- GitHub Repository Tab -->
+                    <div id="project-github-tab" class="tab-content">
+                        <div style="padding: 32px; background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%); border-radius: 16px; border: 3px dashed #475569; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4); position: relative; overflow: hidden;">
+                            <div style="position: absolute; top: -50%; left: -50%; width: 200%; height: 200%; background: radial-gradient(circle, rgba(59, 130, 246, 0.15) 0%, transparent 70%); opacity: 0.5;"></div>
+                            <div style="position: relative; z-index: 1;">
+                                <label style="display: block; margin-bottom: 15px; font-weight: 700; color: #60a5fa; font-size: 1rem; text-transform: uppercase; letter-spacing: 1.2px;">GitHub Repository URL:</label>
+                                <input 
+                                    type="text" 
+                                    id="github-repo-input" 
+                                    placeholder="Enter GitHub repo URL (e.g., https://github.com/username/repo)"
+                                    style="width: 100%; padding: 16px 20px; border: 2px solid #334155; border-radius: 12px; font-size: 14px; margin-bottom: 20px; background: #0f172a; color: #e2e8f0; transition: all 0.3s; font-family: 'Fira Code', 'Courier New', monospace;"
+                                    onfocus="this.style.borderColor='#3b82f6'; this.style.boxShadow='0 0 0 4px rgba(59, 130, 246, 0.2), 0 4px 16px rgba(59, 130, 246, 0.3)'; this.style.background='#1e293b';"
+                                    onblur="this.style.borderColor='#334155'; this.style.boxShadow='none'; this.style.background='#0f172a';"
+                                    onkeypress="if(event.key === 'Enter') cloneAndParseRepo()"
+                                >
+                                <button class="parse-btn" onclick="cloneAndParseRepo()" style="width: 100%;">
+                                    <span>Clone & Parse Repo</span>
+                                    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                        <path d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"></path>
+                                    </svg>
+                                </button>
+                                <p style="margin-top: 15px; font-size: 0.9rem; color: #94a3b8; text-align: center; font-weight: 400;">
+                                    Enter a GitHub repository URL to clone and parse the project
+                                </p>
+                                <div id="github-repo-info" style="display: none; margin-top: 20px; padding: 15px; background: rgba(59, 130, 246, 0.1); border-left: 3px solid #3b82f6; border-radius: 8px;">
+                                    <h4 style="color: #60a5fa; margin-bottom: 10px; font-size: 1rem;">Repository Information:</h4>
+                                    <div id="github-repo-info-content" style="color: #cbd5e1; font-size: 0.9rem;"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
 

@@ -827,7 +827,8 @@ class DiagramGenerator:
             return self._generate_sql_sequence_diagram()
         
         if not self.function_calls and not self.method_calls:
-            return "```mermaid\nsequenceDiagram\n    participant Main as \"📋 Main\"\n    Main->>Main: \"No function calls detected\"\n    Note over Main: Add function calls to see interactions\n```"
+            # Generate sequence diagram based on available code elements
+            return self._generate_structure_based_sequence()
         
         lines = ["```mermaid", "sequenceDiagram"]
         lines.append("    autonumber")
@@ -1253,7 +1254,8 @@ class DiagramGenerator:
             funcs_to_process = [f for f in self.functions if not f.get('is_nested', False)]
         
         if not funcs_to_process:
-            return "```mermaid\nflowchart TD\n    A[No functions found] --> B[Add functions to generate flowchart]\n```"
+            # Generate flowchart based on available code elements
+            return self._generate_structure_based_flowchart()
         
         # Find function with most control flow
         funcs_with_flow = []
@@ -1276,7 +1278,8 @@ class DiagramGenerator:
         functions = self.parse_result.get('functions', [])
         
         if not functions:
-            return "```mermaid\nflowchart TD\n    A[No functions found] --> B[Add JavaScript functions to generate flowchart]\n```"
+            # Generate flowchart based on available code elements
+            return self._generate_structure_based_flowchart()
         
         # Get the FIRST function from parse_code_auto output
         first_func = functions[0]
@@ -1505,8 +1508,18 @@ class DiagramGenerator:
             return self._generate_sql_structure_diagram()
         
         # Handle JavaScript and Python - show functions and classes
-        if not self.classes and not self.functions:
-            return "```mermaid\ngraph TD\n    A[\"📦 No Code Structure Found\"] --> B[\"Add classes or functions to your code\"]\n    style A fill:#e8f4f8\n    style B fill:#fff4e6\n```"
+        # Even if no functions/classes, show other code elements
+        has_code_elements = (
+            self.classes or 
+            self.functions or 
+            self.parse_result.get('global_variables', []) or 
+            self.parse_result.get('local_variables', []) or 
+            self.imports or 
+            self.parse_result.get('tables', [])
+        )
+        
+        if not has_code_elements:
+            return "```mermaid\ngraph TD\n    A[\"📦 No Code Structure Found\"] --> B[\"Add classes, functions, variables, or imports to your code\"]\n    style A fill:#e8f4f8\n    style B fill:#fff4e6\n```"
         
         lines = ["```mermaid", "graph TD"]
         lines.append("    direction TB")
@@ -1845,6 +1858,148 @@ class DiagramGenerator:
             func_flow = [cf for cf in self.control_flow if cf.get('function') == func_name]
             if func_flow:
                 lines.append(f"    {func_id} --> FLOW{func_id}[Has {len(func_flow)} control structures]")
+        
+        lines.append("```")
+        return "\n".join(lines)
+    
+    def _generate_structure_based_flowchart(self) -> str:
+        """Generate flowchart based on code structure (classes, variables, imports) when no functions exist.
+        
+        Returns:
+            Mermaid flowchart code as string
+        """
+        lines = ["```mermaid", "flowchart TD"]
+        
+        # Start node
+        start_id = "Start"
+        lines.append(f"    {start_id}([\"▶️ Code Structure\"])")
+        lines.append(f"    style {start_id} fill:#e8f4f8,stroke:#2196F3,stroke-width:3px")
+        
+        # Add classes if available
+        if self.classes:
+            classes_id = "Classes"
+            lines.append(f"    {start_id} --> {classes_id}[\"🏛️ Classes ({len(self.classes)})\"]")
+            lines.append(f"    style {classes_id} fill:#fff4e6,stroke:#ff9800,stroke-width:2px")
+            
+            for i, cls in enumerate(self.classes[:5]):  # Limit to 5 classes
+                cls_id = f"Class{i+1}"
+                cls_name = cls.get('name', 'Unknown')
+                methods_count = len(cls.get('methods', []))
+                lines.append(f"    {classes_id} --> {cls_id}[\"📦 {cls_name}\"]")
+                if methods_count > 0:
+                    lines.append(f"    {cls_id} --> {cls_id}Methods[\"Methods: {methods_count}\"]")
+                lines.append(f"    style {cls_id} fill:#e3f2fd,stroke:#2196F3")
+        
+        # Add variables if available
+        global_vars = self.parse_result.get('global_variables', [])
+        local_vars = self.parse_result.get('local_variables', [])
+        if global_vars or local_vars:
+            vars_id = "Variables"
+            total_vars = len(global_vars) + len(local_vars)
+            lines.append(f"    {start_id} --> {vars_id}[\"📊 Variables ({total_vars})\"]")
+            lines.append(f"    style {vars_id} fill:#f3e5f5,stroke:#9c27b0,stroke-width:2px")
+            
+            if global_vars:
+                lines.append(f"    {vars_id} --> GlobalVars[\"Global: {len(global_vars)}\"]")
+            if local_vars:
+                lines.append(f"    {vars_id} --> LocalVars[\"Local: {len(local_vars)}\"]")
+        
+        # Add imports if available
+        if self.imports:
+            imports_id = "Imports"
+            lines.append(f"    {start_id} --> {imports_id}[\"📦 Imports ({len(self.imports)})\"]")
+            lines.append(f"    style {imports_id} fill:#e8f5e9,stroke:#4caf50,stroke-width:2px")
+            
+            # Show first few imports
+            for i, imp in enumerate(self.imports[:5]):
+                imp_name = imp.get('module', imp.get('name', 'Unknown'))
+                imp_id = f"Import{i+1}"
+                lines.append(f"    {imports_id} --> {imp_id}[\"📥 {imp_name}\"]")
+                lines.append(f"    style {imp_id} fill:#c8e6c9,stroke:#4caf50")
+        
+        # Add tables if available (for SQL or mixed projects)
+        tables = self.parse_result.get('tables', [])
+        if tables:
+            tables_id = "Tables"
+            lines.append(f"    {start_id} --> {tables_id}[\"🗄️ Tables ({len(tables)})\"]")
+            lines.append(f"    style {tables_id} fill:#fff3e0,stroke:#ff9800,stroke-width:2px")
+            
+            for i, table in enumerate(tables[:5]):
+                table_id = f"Table{i+1}"
+                table_name = table.get('name', 'Unknown')
+                cols_count = len(table.get('columns', []))
+                lines.append(f"    {tables_id} --> {table_id}[\"📋 {table_name}\"]")
+                lines.append(f"    {table_id} --> {table_id}Cols[\"Columns: {cols_count}\"]")
+                lines.append(f"    style {table_id} fill:#ffe0b2,stroke:#ff9800")
+        
+        # If nothing found, show a helpful message
+        if not self.classes and not global_vars and not local_vars and not self.imports and not tables:
+            lines.append(f"    {start_id} --> Empty[\"📝 Empty or Unsupported Code\"]")
+            lines.append(f"    Empty --> Note[\"Add functions, classes, or variables to see structure\"]")
+            lines.append(f"    style Empty fill:#ffebee,stroke:#f44336")
+            lines.append(f"    style Note fill:#fff4e6")
+        
+        lines.append("```")
+        return "\n".join(lines)
+    
+    def _generate_structure_based_sequence(self) -> str:
+        """Generate sequence diagram based on code structure when no function calls exist.
+        
+        Returns:
+            Mermaid sequence diagram code as string
+        """
+        lines = ["```mermaid", "sequenceDiagram"]
+        lines.append("    autonumber")
+        
+        # Add module as main participant
+        lines.append('    participant Module as "📄 Module"')
+        
+        # Add classes as participants
+        if self.classes:
+            for i, cls in enumerate(self.classes[:6]):  # Limit to 6 classes
+                cls_name = cls.get('name', 'Unknown')
+                short_name = cls_name[:4].upper() if len(cls_name) > 4 else cls_name.upper()
+                lines.append(f'    participant {short_name} as "🏛️ {cls_name}"')
+                # Show class initialization
+                lines.append(f'    Module->>{short_name}: Initialize')
+        
+        # Add top-level functions as participants
+        top_level_funcs = [f for f in self.functions if not f.get('is_nested', False)]
+        if top_level_funcs:
+            for i, func in enumerate(top_level_funcs[:6]):  # Limit to 6 functions
+                func_name = func.get('name', 'Unknown')
+                short_name = func_name[:4].upper() if len(func_name) > 4 else func_name.upper()
+                lines.append(f'    participant {short_name} as "⚙️ {func_name}"')
+                lines.append(f'    Module->>{short_name}: Define')
+        
+        # Add imports as participants
+        if self.imports:
+            imports_group = []
+            for imp in self.imports[:5]:  # Limit to 5 imports
+                imp_name = imp.get('module', imp.get('name', 'Unknown'))
+                imports_group.append(imp_name)
+            if imports_group:
+                lines.append(f'    participant Imports as "📦 Imports ({len(imports_group)})"')
+                lines.append(f'    Module->>Imports: Import')
+                for imp_name in imports_group:
+                    lines.append(f'    Note over Imports: {imp_name}')
+        
+        # Add variables section
+        global_vars = self.parse_result.get('global_variables', [])
+        if global_vars:
+            lines.append(f'    participant Vars as "📊 Variables ({len(global_vars)})"')
+            lines.append(f'    Module->>Vars: Declare')
+        
+        # Add tables if available
+        tables = self.parse_result.get('tables', [])
+        if tables:
+            lines.append(f'    participant Tables as "🗄️ Tables ({len(tables)})"')
+            lines.append(f'    Module->>Tables: Define Schema')
+        
+        # If nothing found, show a helpful message
+        if not self.classes and not top_level_funcs and not self.imports and not global_vars and not tables:
+            lines.append('    Note over Module: No code structure detected')
+            lines.append('    Note over Module: Add classes, functions, or imports to see interactions')
         
         lines.append("```")
         return "\n".join(lines)
