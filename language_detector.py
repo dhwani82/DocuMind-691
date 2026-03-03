@@ -3,103 +3,46 @@ Language detection utility with file extension priority.
 
 This module provides language detection that prioritizes file extensions
 over other detection methods, making it more reliable and faster.
+
+Normalized language names: "python", "javascript", "cpp", "c", "sql"
 """
 
 import re
-from typing import Optional, Dict, List, Tuple
+from typing import Optional, Dict, List
+
+# Normalized language names returned by the detector
+NORMALIZED_LANGUAGES = ('python', 'javascript', 'cpp', 'c', 'sql')
 
 
 class LanguageDetector:
     """Detect programming language with file extension priority."""
-    
-    # Extension to language mapping (priority order)
+
+    # Extension to normalized language mapping (priority order).
+    # Grouped by language for clarity and easy extension.
     EXTENSION_MAP: Dict[str, str] = {
         # Python
         '.py': 'python',
         '.pyw': 'python',
         '.pyi': 'python',
-        
-        # JavaScript/TypeScript
+        # JavaScript (.js, .jsx, .ts, .tsx normalized to "javascript")
         '.js': 'javascript',
         '.jsx': 'javascript',
-        '.mjs': 'javascript',
-        '.ts': 'typescript',
-        '.tsx': 'typescript',
-        
-        # Java
-        '.java': 'java',
-        '.class': 'java',
-        
-        # C/C++
-        '.c': 'c',
+        '.ts': 'javascript',
+        '.tsx': 'javascript',
+        # C++
         '.cpp': 'cpp',
         '.cc': 'cpp',
         '.cxx': 'cpp',
-        '.h': 'c',
         '.hpp': 'cpp',
-        '.hxx': 'cpp',
-        
-        # C#
-        '.cs': 'csharp',
-        
-        # Go
-        '.go': 'go',
-        
-        # Rust
-        '.rs': 'rust',
-        
-        # Ruby
-        '.rb': 'ruby',
-        '.rbw': 'ruby',
-        
-        # PHP
-        '.php': 'php',
-        '.phtml': 'php',
-        
-        # Swift
-        '.swift': 'swift',
-        
-        # Kotlin
-        '.kt': 'kotlin',
-        '.kts': 'kotlin',
-        
-        # Scala
-        '.scala': 'scala',
-        '.sc': 'scala',
-        
-        # R
-        '.r': 'r',
-        '.R': 'r',
-        
-        # Shell scripts
-        '.sh': 'bash',
-        '.bash': 'bash',
-        '.zsh': 'bash',
-        
-        # HTML/CSS
-        '.html': 'html',
-        '.htm': 'html',
-        '.css': 'css',
-        
-        # Markdown
-        '.md': 'markdown',
-        '.markdown': 'markdown',
-        
-        # JSON
-        '.json': 'json',
-        
-        # XML
-        '.xml': 'xml',
-        
-        # YAML
-        '.yaml': 'yaml',
-        '.yml': 'yaml',
-        
+        # C (.h shared with C/C++; mapped to C for compatibility)
+        '.c': 'c',
+        '.h': 'c',
         # SQL
         '.sql': 'sql',
     }
     
-    # Language-specific patterns for fallback detection (when no extension)
+    # Language-specific patterns for fallback detection (when no extension).
+    # Only normalized languages: python, javascript, cpp, c, sql.
     LANGUAGE_PATTERNS: Dict[str, List[re.Pattern]] = {
         'python': [
             re.compile(r'\b(?:def|class|import|from|if\s+__name__)\s+'),
@@ -110,10 +53,6 @@ class LanguageDetector:
             re.compile(r'\b(?:function|const|let|var|=>|require\(|import\s)'),
             re.compile(r'console\.(log|error|warn)'),
             re.compile(r'/\*.*\*/|//'),
-        ],
-        'java': [
-            re.compile(r'\b(?:public|private|class|interface|package)\s+'),
-            re.compile(r'\b(?:System\.out\.print|import\s+java\.)'),
         ],
         'cpp': [
             re.compile(r'#include\s*[<"]'),
@@ -242,7 +181,7 @@ class LanguageDetector:
             return detected is not None
         
         if language:
-            return language.lower() in [lang.lower() for lang in cls.EXTENSION_MAP.values()]
+            return language.lower() in NORMALIZED_LANGUAGES
         
         return False
 

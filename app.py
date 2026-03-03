@@ -12,7 +12,7 @@ from code_parser import CodeParser
 from doc_generator import DocumentationGenerator
 from diagram_generator import DiagramGenerator
 from svg_generator import SVGFlowchartGenerator
-from language_detector import LanguageDetector
+from language_detector import LanguageDetector, NORMALIZED_LANGUAGES
 from javascript_parser import JavaScriptParser
 from sql_parser import SQLParser
 from project_scanner import scan_project
@@ -364,15 +364,19 @@ def parse_code():
             
         code = data.get('code', '')
         filename = data.get('filename', None)  # Optional filename for language detection
+        language_override = data.get('language', None)  # Optional: user-selected language from dropdown
         
         if not code:
             return jsonify({'error': 'No code provided'}), 400
         
-        # Detect language with file extension priority
-        detected_language = LanguageDetector.detect(filename=filename, code=code)
-        
-        # Normalize language to lowercase before parsing (force lowercase)
-        lang_normalized = (detected_language or 'python').lower()
+        # Use override if provided and not "auto"; otherwise detect from filename/code
+        if language_override and str(language_override).strip().lower() not in ('', 'auto'):
+            lang_normalized = str(language_override).strip().lower()
+            if lang_normalized not in NORMALIZED_LANGUAGES:
+                return jsonify({'error': f'Unsupported language "{language_override}". Supported: {", ".join(NORMALIZED_LANGUAGES)}'}), 400
+        else:
+            detected_language = LanguageDetector.detect(filename=filename, code=code)
+            lang_normalized = (detected_language or 'python').lower()
         
         # Show info message for JavaScript about tree-sitter usage
         info_messages = []
@@ -465,7 +469,10 @@ def generate_documentation():
         # Parse the code first
         parser = CodeParser()
         parse_result = parser.parse(code)
-        
+        print("DEBUG PARSE RESULT:", parse_result)
+        print("Functions count:", len(parse_result.get("functions", [])))
+        print("Classes count:", len(parse_result.get("classes", [])))
+
         # Generate documentation (API key is read from environment variable)
         doc_generator = DocumentationGenerator()
         documentation = doc_generator.generate_documentation(code, parse_result)

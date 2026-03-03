@@ -57,6 +57,18 @@
                     </div>
                 </div>
 
+                    <div class="language-select-row">
+                        <label for="language-select" class="language-select-label">Parse as:</label>
+                        <select id="language-select" class="language-select" title="Select language for parsing (Auto uses file extension or code detection)">
+                            <option value="auto">Auto (detect from file or code)</option>
+                            <option value="python">Python</option>
+                            <option value="javascript">JavaScript</option>
+                            <option value="cpp">C++</option>
+                            <option value="c">C</option>
+                            <option value="sql">SQL</option>
+                        </select>
+                    </div>
+
                     <div class="action-buttons">
                         <button class="parse-btn" onclick="parseCode()">
                             <span>Analyze Code</span>

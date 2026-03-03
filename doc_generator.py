@@ -41,6 +41,10 @@ class DocumentationGenerator:
         Returns:
             Dictionary with 'docstrings', 'readme', and 'architecture' keys
         """
+        print("DOC GEN RECEIVED:", parse_result)
+        print("DOC GEN FUNCTIONS:", len(parse_result.get("functions", [])))
+        print("DOC GEN CLASSES:", len(parse_result.get("classes", [])))
+
         if self.use_llm:
             return self._generate_with_llm(code, parse_result)
         else:
@@ -308,6 +312,8 @@ This project follows standard Python conventions and includes proper type hints 
         classes = parse_result.get('classes', [])
         functions = parse_result.get('functions', [])
         imports = parse_result.get('imports', [])
+        control_flow = parse_result.get('control_flow', [])
+        top_level_funcs = [f for f in functions if not f.get('is_nested')]
         
         arch = """# Architecture Documentation
 
@@ -319,46 +325,131 @@ This document describes the architecture and structure of the codebase.
 
 """
         
-        # Dependencies
-        arch += "### Dependencies\n\n"
-        for imp in imports:
-            if imp['type'] == 'import':
-                arch += f"- `{imp['module']}`\n"
-            elif imp['type'] == 'from_import':
-                arch += f"- `{imp['module']}.{imp['name']}`\n"
-        
-        arch += "\n### Classes\n\n"
-        
-        for cls in classes:
-            arch += f"#### {cls['name']}\n\n"
-            if cls.get('bases'):
-                arch += f"**Inheritance**: Extends {', '.join(cls['bases'])}\n\n"
-            arch += f"**Methods**: {len(cls.get('methods', []))}\n\n"
-            if cls.get('methods'):
-                arch += "Methods:\n"
-                for method in cls['methods']:
-                    arch += f"- `{method['name']}` ({'async' if method.get('is_async') else 'sync'})\n"
+        # Dependencies (only if present)
+        if imports:
+            arch += "### Dependencies\n\n"
+            for imp in imports:
+                if imp['type'] == 'import':
+                    arch += f"- `{imp['module']}`\n"
+                elif imp['type'] == 'from_import':
+                    arch += f"- `{imp['module']}.{imp['name']}`\n"
             arch += "\n"
+        
+        # Classes (only if present)
+        if classes:
+            arch += "### Classes\n\n"
+            
+            for cls in classes:
+                arch += f"#### {cls['name']}\n\n"
+                if cls.get('bases'):
+                    arch += f"**Inheritance**: Extends {', '.join(cls['bases'])}\n\n"
+                arch += f"**Methods**: {len(cls.get('methods', []))}\n\n"
+                if cls.get('methods'):
+                    arch += "Methods:\n"
+                    for method in cls['methods']:
+                        arch += f"- `{method['name']}` ({'async' if method.get('is_async') else 'sync'})\n"
+                arch += "\n"
         
         arch += "### Functions\n\n"
         
-        top_level_funcs = [f for f in functions if not f.get('is_nested')]
         arch += f"Total top-level functions: {len(top_level_funcs)}\n\n"
         
         for func in top_level_funcs[:10]:
             arch += f"- `{func['name']}` ({'async' if func.get('is_async') else 'sync'})\n"
-        
-        arch += "\n## Relationships\n\n"
-        
-        # Class hierarchy
-        if classes:
+
+        # Module Responsibility section based on detected functions
+        arch += "\n## Module Responsibility\n\n"
+        if top_level_funcs:
+            # Describe responsibilities using function names and control flow
+            func_names = [f.get('name', '') for f in top_level_funcs if f.get('name')]
+            human_names = [name.replace('_', ' ') for name in func_names[:5]]
+
+            if human_names:
+                if len(human_names) == 1:
+                    focus_phrase = human_names[0]
+                elif len(human_names) == 2:
+                    focus_phrase = f"{human_names[0]} and {human_names[1]}"
+                else:
+                    focus_phrase = ", ".join(human_names[:-1]) + f", and {human_names[-1]}"
+                arch += f"This module provides utility functions for {focus_phrase}.\n\n"
+            else:
+                arch += "This module provides utility functions focused on the primary operations implemented by its top-level functions.\n\n"
+
+            # Derive a brief behavioral summary from control flow
+            func_name_set = set(func_names)
+            func_flow = [cf for cf in control_flow if cf.get('function') in func_name_set]
+            has_any_conditionals = any(cf.get('type') == 'if' for cf in func_flow)
+            has_any_loops = any(cf.get('type') in ('for', 'while') for cf in func_flow)
+
+            if has_any_conditionals and has_any_loops:
+                arch += "These functions combine conditional evaluation with iterative processing to implement their behavior.\n"
+            elif has_any_conditionals:
+                arch += "These functions primarily perform conditional evaluation and branching based on input values.\n"
+            elif has_any_loops:
+                arch += "These functions focus on iterative processing and collection handling.\n"
+
+            # List key function names once, concisely
+            if func_names:
+                key_funcs = func_names[:5]
+                formatted = ", ".join(f"`{name}`" for name in key_funcs)
+                arch += f"\nKey functions in this module include {formatted}.\n"
+        else:
+            arch += "This module does not define any top-level functions. Its responsibility is likely expressed through classes, imports, or side effects.\n"
+
+        # Functional overview for each top-level function
+        arch += "\n## Functional Overview\n\n"
+        if top_level_funcs:
+            for func in top_level_funcs[:10]:
+                func_name = func.get('name')
+                if not func_name:
+                    continue
+
+                readable_name = func_name.replace('_', ' ')
+                func_flow = [cf for cf in control_flow if cf.get('function') == func_name]
+                has_conditionals = any(cf.get('type') == 'if' for cf in func_flow)
+                has_loops = any(cf.get('type') in ('for', 'while') for cf in func_flow)
+
+                arch += f"### {func_name}\n\n"
+
+                # Purpose line tuned based on control flow
+                if has_conditionals and has_loops:
+                    arch += (
+                        f"- Purpose: Implements decision-based logic and iterative processing "
+                        f"for **{readable_name}**.\n"
+                    )
+                elif has_conditionals:
+                    arch += (
+                        f"- Purpose: Implements decision-based logic and branching for "
+                        f"**{readable_name}**.\n"
+                    )
+                elif has_loops:
+                    arch += (
+                        f"- Purpose: Performs iterative processing and collection handling for "
+                        f"**{readable_name}**.\n"
+                    )
+                else:
+                    arch += f"- Purpose: Provides core behavior related to **{readable_name}**.\n"
+
+                # Concise control-flow note
+                if has_conditionals and has_loops:
+                    arch += "- Control flow: Uses both conditionals and loops.\n\n"
+                elif has_conditionals:
+                    arch += "- Control flow: Uses conditionals.\n\n"
+                elif has_loops:
+                    arch += "- Control flow: Uses loops.\n\n"
+                else:
+                    arch += "- Control flow: No recorded conditionals or loops.\n\n"
+        else:
+            arch += "No top-level functions were detected in this module. Functional behavior is likely encapsulated in classes or side effects.\n\n"
+
+        # Relationships (only if there is at least one inheritance relationship)
+        has_relationships = any(cls.get('bases') for cls in classes)
+        if has_relationships:
+            arch += "\n## Relationships\n\n"
             arch += "### Class Hierarchy\n\n"
             for cls in classes:
                 if cls.get('bases'):
                     arch += f"- `{cls['name']}` → {', '.join(cls['bases'])}\n"
-        
-        arch += "\n## Design Patterns\n\n"
-        arch += "[Document any design patterns used in the codebase]\n"
         
         return arch
     

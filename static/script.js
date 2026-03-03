@@ -458,10 +458,15 @@ async function parseCode() {
     hideError();
     showLoading();
     
-    // Prepare request body with filename for language detection
+    // Prepare request body with filename and optional language
     const requestBody = { code: code };
     if (currentFilename) {
         requestBody.filename = currentFilename;
+    }
+    const languageSelect = document.getElementById('language-select');
+    const selectedLanguage = languageSelect ? languageSelect.value : 'auto';
+    if (selectedLanguage && selectedLanguage !== 'auto') {
+        requestBody.language = selectedLanguage;
     }
     
     try {
