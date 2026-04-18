@@ -349,9 +349,9 @@ def normalize_variable_fields(result: dict) -> dict:
     
     return result
 
-@app.route('/')
-def index():
-    return render_template('index.html')
+@app.route("/")
+def home():
+    return render_template("index.html")
 
 @app.route('/api/parse', methods=['POST'])
 def parse_code():
