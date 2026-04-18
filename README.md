@@ -64,10 +64,10 @@ python -m venv venv
 pip install -r requirements.txt
 ```
 
-5. (Optional, for AI docs) Configure your OpenAI key in a **`.env`** file in the project root:
-   - Copy `.env.example` to `.env` if needed: `cp .env.example .env`
-   - Edit `.env` and set: `OPENAI_API_KEY=sk-your-key-here`
-   - The file is **gitignored**—do not commit it. The app loads it automatically on startup via `python-dotenv`.
+5. **OpenAI API key (optional, for AI-powered docs):** set the environment variable **`OPENAI_API_KEY`** so the backend can call OpenAI. The app does **not** read the key from the web UI.
+   - **Local:** copy `.env.example` to `.env`, then add `OPENAI_API_KEY=sk-your-key-here`. `.env` is **gitignored**—never commit it. Values load on startup via `python-dotenv`.
+   - **Production (e.g. Render):** add **`OPENAI_API_KEY`** in the service **Environment** settings (secret), not in the repository.
+   - If **`OPENAI_API_KEY`** is unset, documentation generation still works using the **template-based** path (no LLM).
 
 ## Usage
 
@@ -84,8 +84,9 @@ venv\Scripts\python.exe app.py
 
 2. Open your browser and navigate to:
 ```
-http://localhost:5000
+http://127.0.0.1:5001
 ```
+   (Default port is **5001** unless you set **`PORT`**; macOS often uses port 5000 for AirPlay.)
 
 3. Either:
    - Paste your code into the text area, or
@@ -111,11 +112,11 @@ http://localhost:5000
 ### Optional: Enhanced AI Documentation
 
 For AI-powered documentation generation:
-1. Get an OpenAI API key from [OpenAI](https://platform.openai.com/)
-2. Paste your key into the **OpenAI API key (optional)** field on the page (under Parser Mode), **or** put it in `.env` as `OPENAI_API_KEY=...`, **or** export `OPENAI_API_KEY` in your shell before starting the server
-3. The tool will use GPT-4o-mini to generate more sophisticated documentation
+1. Get an OpenAI API key from [OpenAI](https://platform.openai.com/).
+2. Set **`OPENAI_API_KEY`** in the environment (see **Installation** step 5): `.env` locally, or your host’s env config (e.g. Render **Environment** variables). You can also pass **`api_key`** in **`POST /api/generate-docs`** JSON for programmatic use.
+3. With a valid key configured, the backend uses **GPT-4o-mini** for richer docstrings, README, and architecture text.
 
-**Note**: The tool works without an API key using template-based generation, but AI-generated docs are more comprehensive and context-aware.
+**Note:** Without **`OPENAI_API_KEY`**, the tool uses **template-based** generation only (no LLM calls).
 
 ## Example Output
 
