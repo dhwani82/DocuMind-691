@@ -1044,5 +1044,7 @@ def generate_svg_flowchart():
         return jsonify({'error': f'Error generating SVG flowchart: {str(e)}'}), 500
 
 if __name__ == '__main__':
-    app.run(debug=True, host='127.0.0.1', port=5001)
+    # Honor PORT (e.g. Render, Docker); default 5001 avoids macOS AirPlay on 5000.
+    port = int(os.environ.get("PORT", "5001"))
+    app.run(debug=True, host="127.0.0.1", port=port)
 
