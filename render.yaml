@@ -1,0 +1,12 @@
+# Render Blueprint: https://render.com/docs/yaml-spec
+# Set secrets (e.g. OPENAI_API_KEY) in the Render dashboard → Environment, not in this file.
+services:
+  - type: web
+    name: documind
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    # Render sets PORT; bind 0.0.0.0 so the service accepts external traffic.
+    startCommand: gunicorn --bind 0.0.0.0:$PORT app:app
+    envVars:
+      - key: OPENAI_API_KEY
+        sync: false
