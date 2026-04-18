@@ -1,4 +1,4 @@
-def test_function(x):
+def branch_on_sign(x):
     if x > 0:
         return 1
     else:

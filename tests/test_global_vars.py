@@ -10,9 +10,9 @@ def test_function():
     # These should NOT be global variables (local to function)
     local_var = 10
     another_local = "test"
-    return local_var
+    assert local_var == 10
 
-class TestClass:
+class SampleClass:
     # This should be a class variable
     class_var = "class_value"
     

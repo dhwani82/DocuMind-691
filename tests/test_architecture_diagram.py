@@ -56,7 +56,7 @@ if __name__ == '__main__':
     assert "Global Variables" in arch
     assert "Execution Scope" in arch or "Execution Entry Point" in arch
     
-    return arch
+    assert arch is not None
 
 
 def test_code_with_classes():
@@ -137,7 +137,7 @@ if __name__ == '__main__':
     assert "Cat" in arch
     assert "inherits" in arch
     
-    return arch
+    assert arch is not None
 
 
 def test_mixed_code():
@@ -200,7 +200,7 @@ if __name__ == '__main__':
     assert "Global Variables" in arch
     assert "Execution Scope" in arch or "Execution Entry Point" in arch
     
-    return arch
+    assert arch is not None
 
 
 def test_empty_code():
@@ -221,7 +221,7 @@ def test_empty_code():
     # Should at least show module
     assert "MODULE" in arch
     
-    return arch
+    assert arch is not None
 
 
 def test_only_imports():
@@ -250,7 +250,7 @@ import requests
     assert "MODULE" in arch
     assert "Imports" in arch
     
-    return arch
+    assert arch is not None
 
 
 def test_nested_functions():
@@ -290,7 +290,7 @@ if __name__ == '__main__':
     assert "outer_function" in arch or "top_level_function" in arch
     # inner_function should not appear (it's nested)
     
-    return arch
+    assert arch is not None
 
 
 def test_complex_inheritance():
@@ -335,7 +335,7 @@ def utility_function():
     assert "FinalClass" in arch
     assert "inherits" in arch
     
-    return arch
+    assert arch is not None
 
 
 def test_simple_example():
@@ -371,7 +371,7 @@ def main():
     assert "UserService" in arch
     assert "main" in arch
     
-    return arch
+    assert arch is not None
 
 
 if __name__ == '__main__':

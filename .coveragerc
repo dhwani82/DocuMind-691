@@ -1,0 +1,6 @@
+# Run: pytest --cov=. --cov-report=term-missing
+[run]
+omit =
+    venv/*
+    .venv/*
+    .pytest_cache/*

@@ -990,7 +990,5 @@ class CodeVisitor(ast.NodeVisitor):
             return 'tuple'
         elif isinstance(node, ast.Set):
             return 'set'
-        elif isinstance(node, ast.NameConstant):
-            return 'bool' if isinstance(node.value, bool) else 'NoneType'
         return 'unknown'
 
