@@ -1,5 +1,9 @@
 from flask import Flask, request, jsonify, render_template, Response
 from flask_cors import CORS
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import ast
 import json
 import os
@@ -462,6 +466,9 @@ def generate_documentation():
             return jsonify({'error': 'No data provided'}), 400
             
         code = data.get('code', '')
+        api_key = data.get('api_key')
+        if api_key is not None:
+            api_key = str(api_key).strip() or None
         
         if not code:
             return jsonify({'error': 'No code provided'}), 400
@@ -473,8 +480,8 @@ def generate_documentation():
         print("Functions count:", len(parse_result.get("functions", [])))
         print("Classes count:", len(parse_result.get("classes", [])))
 
-        # Generate documentation (API key is read from environment variable)
-        doc_generator = DocumentationGenerator()
+        # Generate documentation (optional api_key from request, else OPENAI_API_KEY env)
+        doc_generator = DocumentationGenerator(api_key=api_key)
         documentation = doc_generator.generate_documentation(code, parse_result)
         
         return jsonify({
@@ -504,12 +511,15 @@ def generate_project_documentation():
             return jsonify({'error': 'No data provided'}), 400
             
         project_data = data.get('project_data', {})
+        api_key = data.get('api_key')
+        if api_key is not None:
+            api_key = str(api_key).strip() or None
         
         if not project_data:
             return jsonify({'error': 'No project data provided'}), 400
         
         # Generate documentation for the project
-        doc_generator = DocumentationGenerator()
+        doc_generator = DocumentationGenerator(api_key=api_key)
         documentation = doc_generator.generate_project_documentation(project_data)
         
         return jsonify({

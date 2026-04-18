@@ -575,6 +575,12 @@ async function generateDocumentation() {
                 code: currentCode
             };
         }
+
+        const apiKeyEl = document.getElementById('openai-api-key');
+        const apiKey = apiKeyEl ? apiKeyEl.value.trim() : '';
+        if (apiKey) {
+            requestBody.api_key = apiKey;
+        }
         
         const response = await fetch(endpoint, {
             method: 'POST',

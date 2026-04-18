@@ -1,13 +1,13 @@
 # DocuMind - Code Documentation Tool
 
-DocuMind is a powerful code documentation tool that analyzes Python code structure using AST (Abstract Syntax Tree) parsing. It provides developers with instant insights into their codebase structure.
+DocuMind is a powerful code documentation tool that analyzes code structure (Python, JavaScript, SQL, and other languages via pluggable parsers) using AST-style parsing. It provides developers with instant insights into their codebase structure.
 
 ## Features
 
-- **Code Analysis**: Parse Python code to extract comprehensive structural information
+- **Code Analysis**: Parse code to extract comprehensive structural information
 - **Multiple Input Methods**: 
   - Paste code directly into the interface
-  - Upload Python files (.py)
+  - Upload source files (Python, JavaScript, SQL, and more)
 - **Detailed Extraction**:
   - Functions (sync, async, nested)
   - Classes with parent classes
@@ -17,10 +17,18 @@ DocuMind is a powerful code documentation tool that analyzes Python code structu
   - Instance variables
   - Decorators
   - Imports
+- **Language Detection & Selection**:
+  - Automatic language detection based on file extension and code
+  - Manual override via a **Parse as** dropdown (Python, JavaScript, C, C++, SQL)
 - **Professional Documentation Generation**:
   - **PEP 257 Compliant Docstrings**: Automatically generate docstrings for functions and classes
   - **README.md**: Generate comprehensive project documentation with setup instructions
-  - **ARCHITECTURE.md**: Create detailed architecture documentation with module relationships
+  - **ARCHITECTURE.md**: Create detailed architecture documentation with:
+    - Dependencies and module structure
+    - Class overviews (when present)
+    - Function counts and key function list
+    - **Module Responsibility** section summarizing what the module does
+    - **Functional Overview** for each top-level function (purpose + control-flow notes)
   - **LLM-Powered**: Optional OpenAI API integration for AI-enhanced documentation
   - **Template-Based Fallback**: Works without API key using intelligent templates
 - **Automatic Diagram Generation**:
@@ -34,6 +42,9 @@ DocuMind is a powerful code documentation tool that analyzes Python code structu
   - Complete JSON output
   - Generated documentation files (downloadable)
   - Copy-to-clipboard functionality
+ - **Developer Debug Tools**:
+   - `tests/test_parser_debug.py` for quickly inspecting `CodeParser` output
+   - `tests/sample_code_for_testing.py` with ready-made code snippets to exercise parsing and documentation
 
 ## Installation
 
@@ -52,6 +63,11 @@ python -m venv venv
 ```bash
 pip install -r requirements.txt
 ```
+
+5. (Optional, for AI docs) Configure your OpenAI key in a **`.env`** file in the project root:
+   - Copy `.env.example` to `.env` if needed: `cp .env.example .env`
+   - Edit `.env` and set: `OPENAI_API_KEY=sk-your-key-here`
+   - The file is **gitignored**—do not commit it. The app loads it automatically on startup via `python-dotenv`.
 
 ## Usage
 
@@ -72,19 +88,22 @@ http://localhost:5000
 ```
 
 3. Either:
-   - Paste your Python code into the text area, or
-   - Upload a Python file using the upload tab
+   - Paste your code into the text area, or
+   - Upload a source file using the upload tab (Python/JavaScript/SQL and more)
 
-4. Click "Analyze Code" to see the results
+4. (Optional) Use the **Parse as** dropdown to force a specific language (Python, JavaScript, C, C++, SQL).  
+   - If set to **Auto**, DocuMind will detect the language from the filename and/or code.
 
-5. View the summary or switch to JSON view for detailed output
+5. Click "Analyze Code" to see the results
 
-6. View automatically generated diagrams:
+6. View the summary or switch to JSON view for detailed output
+
+7. View automatically generated diagrams:
    - **Architecture**: Class structure and relationships
    - **Sequence**: Function call sequences
    - **Dependencies**: Module import relationships
 
-7. Click "Generate Documentation" to create professional documentation:
+8. Click "Generate Documentation" to create professional documentation:
    - **Docstrings**: Code with PEP 257 compliant docstrings
    - **README.md**: Project documentation
    - **ARCHITECTURE.md**: Architecture and design documentation
@@ -93,7 +112,7 @@ http://localhost:5000
 
 For AI-powered documentation generation:
 1. Get an OpenAI API key from [OpenAI](https://platform.openai.com/)
-2. Enter your API key in the optional field before generating documentation
+2. Paste your key into the **OpenAI API key (optional)** field on the page (under Parser Mode), **or** put it in `.env` as `OPENAI_API_KEY=...`, **or** export `OPENAI_API_KEY` in your shell before starting the server
 3. The tool will use GPT-4o-mini to generate more sophisticated documentation
 
 **Note**: The tool works without an API key using template-based generation, but AI-generated docs are more comprehensive and context-aware.
@@ -122,29 +141,40 @@ The tool provides:
 
 ```
 DocuMind/
-├── app.py              # Flask application and API endpoints
-├── code_parser.py      # AST parser implementation
-├── doc_generator.py    # Documentation generator with LLM support
+├── app.py               # Flask application and API endpoints
+├── code_parser.py       # Core parser implementation (Python)
+├── javascript_parser.py # JavaScript parser
+├── sql_parser.py        # SQL parser
+├── language_detector.py # Unified language detection (Python/JS/C/C++/SQL, etc.)
+├── doc_generator.py     # Documentation generator with LLM + template support
 ├── diagram_generator.py # Mermaid diagram generator
+├── svg_generator.py     # SVG flowchart generator
 ├── templates/
-│   └── index.html      # Frontend interface
+│   └── index.html       # Frontend interface (includes Parse as dropdown)
 ├── static/
-│   ├── style.css       # Styling
-│   └── script.js       # Frontend logic
-├── requirements.txt    # Python dependencies
-└── README.md          # This file
+│   ├── style.css        # Styling
+│   └── script.js        # Frontend logic
+├── tests/
+│   ├── test_flow.py             # Control-flow parsing tests
+│   ├── test_architecture_diagram.py # Diagram/architecture tests
+│   ├── test_parser_debug.py     # Ad-hoc parser debug helper
+│   └── sample_code_for_testing.py # Sample snippets for manual testing
+├── requirements.txt     # Python dependencies
+└── README.md           # This file
 ```
 
 ## API Endpoints
 
 ### POST /api/parse
 
-Analyzes Python code and returns structured information.
+Analyzes code and returns structured information (currently supports Python, JavaScript, and SQL parsing; other languages can still be detected but may not yet have full parser support).
 
 **Request Body:**
 ```json
 {
-  "code": "your python code here"
+  "code": "your code here",
+  "filename": "optional_filename.py",
+  "language": "optional_language_override"  // e.g. "python", "javascript", "sql"
 }
 ```
 
