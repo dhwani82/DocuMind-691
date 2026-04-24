@@ -42,9 +42,9 @@ DocuMind is a powerful code documentation tool that analyzes code structure (Pyt
   - Complete JSON output
   - Generated documentation files (downloadable)
   - Copy-to-clipboard functionality
- - **Developer Debug Tools**:
-   - `tests/test_parser_debug.py` for quickly inspecting `CodeParser` output
-   - `tests/sample_code_for_testing.py` with ready-made code snippets to exercise parsing and documentation
+- **Developer Debug Tools**:
+  - `tests/test_parser_debug.py` for quickly inspecting `CodeParser` output
+  - `tests/sample_code_for_testing.py` with ready-made code snippets to exercise parsing and documentation
 
 ## Installation
 
@@ -71,40 +71,37 @@ pip install -r requirements.txt
 
 ## Usage
 
-1. Make sure your virtual environment is activated (if using one)
+1. Make sure your virtual environment is activated (if using one).
 
-2. Start the Flask server:
+2. Start the Flask development server:
 ```bash
 python app.py
 ```
-   Or if using the virtual environment:
+   On Windows with a venv, you can use:
 ```bash
 venv\Scripts\python.exe app.py
 ```
+   The app reads **`PORT`** from the environment (default **5001**). On macOS, port **5000** is often taken by AirPlay, so **5001** avoids conflicts.
 
-2. Open your browser and navigate to:
-```
-http://127.0.0.1:5001
-```
-   (Default port is **5001** unless you set **`PORT`**; macOS often uses port 5000 for AirPlay.)
+3. Open your browser at **`http://127.0.0.1:5001`** (or `http://127.0.0.1:$PORT` if you set **`PORT`**).
 
-3. Either:
+4. Either:
    - Paste your code into the text area, or
    - Upload a source file using the upload tab (Python/JavaScript/SQL and more)
 
-4. (Optional) Use the **Parse as** dropdown to force a specific language (Python, JavaScript, C, C++, SQL).  
+5. (Optional) Use the **Parse as** dropdown to force a specific language (Python, JavaScript, C, C++, SQL).  
    - If set to **Auto**, DocuMind will detect the language from the filename and/or code.
 
-5. Click "Analyze Code" to see the results
+6. Click **Analyze Code** to see the results.
 
-6. View the summary or switch to JSON view for detailed output
+7. View the summary or switch to JSON view for detailed output.
 
-7. View automatically generated diagrams:
+8. View automatically generated diagrams:
    - **Architecture**: Class structure and relationships
    - **Sequence**: Function call sequences
    - **Dependencies**: Module import relationships
 
-8. Click "Generate Documentation" to create professional documentation:
+9. Click **Generate Documentation** to create professional documentation:
    - **Docstrings**: Code with PEP 257 compliant docstrings
    - **README.md**: Project documentation
    - **ARCHITECTURE.md**: Architecture and design documentation
@@ -117,6 +114,38 @@ For AI-powered documentation generation:
 3. With a valid key configured, the backend uses **GPT-4o-mini** for richer docstrings, README, and architecture text.
 
 **Note:** Without **`OPENAI_API_KEY`**, the tool uses **template-based** generation only (no LLM calls).
+
+### Production server (Gunicorn)
+
+For a production-style run (similar to [Render](https://render.com)), install dependencies and start Gunicorn with an explicit port if **`PORT`** is unset locally:
+
+```bash
+pip install -r requirements.txt
+PORT=5001 gunicorn --bind 0.0.0.0:$PORT app:app
+```
+
+On Render, **`PORT`** is set automatically; the blueprint in **`render.yaml`** uses `gunicorn --bind 0.0.0.0:$PORT app:app`.
+
+## Running tests
+
+From the project root with your virtual environment activated:
+
+```bash
+pytest
+```
+
+With coverage (uses **`.coveragerc`** to omit virtualenvs and cache):
+
+```bash
+pytest --cov=. --cov-report=term-missing
+```
+
+## Deploying on Render
+
+1. Connect this repository to Render and create a **Web Service** (or use **Blueprints** with **`render.yaml`**).
+2. **Build:** `pip install -r requirements.txt` (already in **`render.yaml`**).
+3. **Start:** `gunicorn --bind 0.0.0.0:$PORT app:app`.
+4. Set **`OPENAI_API_KEY`** in the service **Environment** tab if you want LLM-backed docs (`sync: false` in the YAML means the value is not stored in git—configure it in the dashboard).
 
 ## Example Output
 
@@ -131,7 +160,7 @@ The tool provides:
 
 ## Technology Stack
 
-- **Backend**: Flask (Python)
+- **Backend**: Flask (Python), Gunicorn for production
 - **Frontend**: HTML, CSS, JavaScript
 - **Parsing**: Python AST module
 - **Diagrams**: Mermaid.js for visualization
@@ -142,26 +171,30 @@ The tool provides:
 
 ```
 DocuMind/
-├── app.py               # Flask application and API endpoints
-├── code_parser.py       # Core parser implementation (Python)
-├── javascript_parser.py # JavaScript parser
-├── sql_parser.py        # SQL parser
-├── language_detector.py # Unified language detection (Python/JS/C/C++/SQL, etc.)
-├── doc_generator.py     # Documentation generator with LLM + template support
-├── diagram_generator.py # Mermaid diagram generator
-├── svg_generator.py     # SVG flowchart generator
+├── app.py                 # Flask application and API endpoints
+├── code_parser.py         # Core Python AST parser
+├── javascript_parser.py   # JavaScript parser
+├── sql_parser.py          # SQL parser
+├── language_detector.py   # Language detection / overrides
+├── doc_generator.py       # Documentation (LLM + templates)
+├── diagram_generator.py   # Mermaid diagrams
+├── svg_generator.py       # SVG flowchart generation
+├── project_scanner.py     # Project / repo scanning helpers
+├── render.yaml            # Render Blueprint (build + start + env hint)
+├── .env.example           # Example environment variables (copy to .env)
+├── .coveragerc            # pytest-cov omit patterns
 ├── templates/
-│   └── index.html       # Frontend interface (includes Parse as dropdown)
+│   └── index.html         # Web UI
 ├── static/
-│   ├── style.css        # Styling
-│   └── script.js        # Frontend logic
+│   ├── style.css
+│   └── script.js
 ├── tests/
-│   ├── test_flow.py             # Control-flow parsing tests
-│   ├── test_architecture_diagram.py # Diagram/architecture tests
-│   ├── test_parser_debug.py     # Ad-hoc parser debug helper
-│   └── sample_code_for_testing.py # Sample snippets for manual testing
-├── requirements.txt     # Python dependencies
-└── README.md           # This file
+│   ├── conftest.py        # Pytest fixtures (Flask test client)
+│   ├── sample_code_for_testing.py
+│   ├── test_parser_debug.py
+│   └── test_*.py          # Parser, API, diagrams, docs, language, SQL/JS, etc.
+├── requirements.txt
+└── README.md
 ```
 
 ## API Endpoints
@@ -170,12 +203,21 @@ DocuMind/
 
 Analyzes code and returns structured information (currently supports Python, JavaScript, and SQL parsing; other languages can still be detected but may not yet have full parser support).
 
-**Request Body:**
+**Request body (JSON):**
+
+| Field        | Required | Description |
+|-------------|----------|-------------|
+| `code`      | Yes      | Source to parse |
+| `filename`  | No       | Hint for detection (extension) |
+| `language`  | No       | Override, e.g. `"python"`, `"javascript"`, `"sql"` |
+
+Example:
+
 ```json
 {
   "code": "your code here",
   "filename": "optional_filename.py",
-  "language": "optional_language_override"  // e.g. "python", "javascript", "sql"
+  "language": "python"
 }
 ```
 
@@ -207,11 +249,19 @@ Analyzes code and returns structured information (currently supports Python, Jav
 
 Generates professional documentation for Python code.
 
-**Request Body:**
+**Request body (JSON):**
+
+| Field      | Required | Description |
+|-----------|----------|-------------|
+| `code`    | Yes      | Python source |
+| `api_key` | No       | OpenAI key for this request only (prefer **`OPENAI_API_KEY`** in env) |
+
+Example:
+
 ```json
 {
   "code": "your python code here",
-  "api_key": "sk-..." // Optional: OpenAI API key for enhanced generation
+  "api_key": "sk-..."
 }
 ```
 
@@ -227,6 +277,18 @@ Generates professional documentation for Python code.
   }
 }
 ```
+
+### Other JSON API routes
+
+All routes accept **`POST`** with JSON unless noted. See **`app.py`** for exact payloads and responses.
+
+| Route | Purpose |
+|-------|---------|
+| `/api/generate-project-docs` | Documentation for a scanned project payload |
+| `/api/parse-project` | Parse a project layout from JSON (paths + file contents) |
+| `/api/parse-uploaded-project` | Parse an uploaded project archive |
+| `/api/parse-github-repo` | Fetch and parse a public GitHub repository |
+| `/api/generate-svg-flowchart` | Generate an SVG flowchart from analyzed code |
 
 ## License
 
