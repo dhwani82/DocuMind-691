@@ -1,296 +1,252 @@
-# DocuMind - Code Documentation Tool
+# DocuMind
 
-DocuMind is a powerful code documentation tool that analyzes code structure (Python, JavaScript, SQL, and other languages via pluggable parsers) using AST-style parsing. It provides developers with instant insights into their codebase structure.
+DocuMind is a code documentation and analysis tool. It parses source (with a focus on **Python**, **JavaScript**, and **SQL**), summarizes structure, renders **Mermaid** diagrams, and can generate **docstrings**, **README**, and **architecture** text using **templates** or an optional **OpenAI** model.
 
 ## Features
 
-- **Code Analysis**: Parse code to extract comprehensive structural information
-- **Multiple Input Methods**: 
-  - Paste code directly into the interface
-  - Upload source files (Python, JavaScript, SQL, and more)
-- **Detailed Extraction**:
-  - Functions (sync, async, nested)
-  - Classes with parent classes
-  - Methods
-  - Global variables
-  - Class variables
-  - Instance variables
-  - Decorators
-  - Imports
-- **Language Detection & Selection**:
-  - Automatic language detection based on file extension and code
-  - Manual override via a **Parse as** dropdown (Python, JavaScript, C, C++, SQL)
-- **Professional Documentation Generation**:
-  - **PEP 257 Compliant Docstrings**: Automatically generate docstrings for functions and classes
-  - **README.md**: Generate comprehensive project documentation with setup instructions
-  - **ARCHITECTURE.md**: Create detailed architecture documentation with:
-    - Dependencies and module structure
-    - Class overviews (when present)
-    - Function counts and key function list
-    - **Module Responsibility** section summarizing what the module does
-    - **Functional Overview** for each top-level function (purpose + control-flow notes)
-  - **LLM-Powered**: Optional OpenAI API integration for AI-enhanced documentation
-  - **Template-Based Fallback**: Works without API key using intelligent templates
-- **Automatic Diagram Generation**:
-  - **Architecture Diagrams**: Class relationships, inheritance, and dependencies
-  - **Sequence Diagrams**: Function/method call sequences and interactions
-  - **Dependency Diagrams**: Module and import relationships
-  - All diagrams use Mermaid.js and reflect actual parsed code relationships
-- **Output Formats**:
-  - Human-readable summary with statistics
-  - Interactive Mermaid diagrams
-  - Complete JSON output
-  - Generated documentation files (downloadable)
-  - Copy-to-clipboard functionality
-- **Developer Debug Tools**:
-  - `tests/test_parser_debug.py` for quickly inspecting `CodeParser` output
-  - `tests/sample_code_for_testing.py` with ready-made code snippets to exercise parsing and documentation
+- **Code analysis**: Extract functions (sync, async, nested), classes (bases, methods), variables, decorators, imports, control flow, and more (varies by language).
+- **Inputs**:
+  - Paste code in the web UI
+  - Upload a single file
+  - Upload a **project** (multiple files)
+  - **Local folder**: `POST /api/parse-project` with a server-accessible path
+  - **GitHub**: clone and parse via `POST /api/parse-github-repo`
+- **Language handling**:
+  - **Parse as** override or **Auto** detection from filename and content
+  - **Structural parsing** is implemented for **Python**, **JavaScript**, and **SQL**. The UI and bulk scanners may accept other extensions (e.g. C/C++, Java, PHP); those files are best-effort and may not parse meaningfully until a dedicated parser exists.
+- **Documentation generation**:
+  - **PEP 257-style docstrings** (Python-oriented pipeline)
+  - **README.md** and **ARCHITECTURE.md**-style outputs with module responsibility and functional overview where data is available
+  - **LLM** (optional `OPENAI_API_KEY`) or **template-only** fallback
+- **Diagrams** (Mermaid), including:
+  - Architecture, **code architecture**, sequence, dependencies, structure, flowchart
+  - **Project** responses add **`file_diagrams`** (per-file diagrams, including per-function flowcharts where applicable)
+- **SVG flowcharts**: `POST /api/generate-svg-flowchart` returns downloadable SVG (Python parse path).
+- **Developer helpers**:
+  - `tests/test_parser_debug.py` — quick `CodeParser` inspection
+  - `tests/sample_code_for_testing.py` — sample snippets for manual tests
+
+## Requirements
+
+- Python 3.x
+- Dependencies in `requirements.txt` (Flask, flask-cors, openai, python-dotenv, pytest, etc.)
 
 ## Installation
 
-1. Clone or download this repository
+1. Clone or download this repository.
 
 2. Create a virtual environment (recommended):
+
 ```bash
 python -m venv venv
 ```
 
-3. Activate the virtual environment:
-   - On Windows: `venv\Scripts\activate`
-   - On Linux/Mac: `source venv/bin/activate`
+3. Activate it:
+
+   - **Windows:** `venv\Scripts\activate`
+   - **Linux/macOS:** `source venv/bin/activate`
 
 4. Install dependencies:
+
 ```bash
 pip install -r requirements.txt
 ```
 
-5. **OpenAI API key (optional, for AI-powered docs):** set the environment variable **`OPENAI_API_KEY`** so the backend can call OpenAI. The app does **not** read the key from the web UI.
-   - **Local:** copy `.env.example` to `.env`, then add `OPENAI_API_KEY=sk-your-key-here`. `.env` is **gitignored**—never commit it. Values load on startup via `python-dotenv`.
-   - **Production (e.g. Render):** add **`OPENAI_API_KEY`** in the service **Environment** settings (secret), not in the repository.
-   - If **`OPENAI_API_KEY`** is unset, documentation generation still works using the **template-based** path (no LLM).
+5. **OpenAI (optional):** for LLM-backed documentation, set **`OPENAI_API_KEY`**. The web UI does not read the key; the server uses the environment (or an optional `api_key` field on some JSON APIs).
 
-## Usage
+   - **Local:** copy `.env.example` to `.env` and set `OPENAI_API_KEY=sk-...`. `.env` is gitignored.
+   - **Production (e.g. Render):** set **`OPENAI_API_KEY`** in the host’s environment/secrets, not in the repo.
 
-1. Make sure your virtual environment is activated (if using one).
+If **`OPENAI_API_KEY`** is unset, documentation still runs on **templates** only.
 
-2. Start the Flask development server:
+## Usage (local web app)
+
+1. Activate your virtual environment if you use one.
+
+2. Start the Flask dev server:
+
 ```bash
 python app.py
 ```
-   On Windows with a venv, you can use:
+
+Or explicitly:
+
 ```bash
 venv\Scripts\python.exe app.py
 ```
-   The app reads **`PORT`** from the environment (default **5001**). On macOS, port **5000** is often taken by AirPlay, so **5001** avoids conflicts.
 
-3. Open your browser at **`http://127.0.0.1:5001`** (or `http://127.0.0.1:$PORT` if you set **`PORT`**).
+3. Open **http://127.0.0.1:5001** (default). Port **5001** avoids macOS AirPlay on **5000**. Override with the **`PORT`** environment variable.
 
-4. Either:
-   - Paste your code into the text area, or
-   - Upload a source file using the upload tab (Python/JavaScript/SQL and more)
+4. Paste code, upload a file, or use project / GitHub flows in the UI as provided.
 
-5. (Optional) Use the **Parse as** dropdown to force a specific language (Python, JavaScript, C, C++, SQL).  
-   - If set to **Auto**, DocuMind will detect the language from the filename and/or code.
+5. Use **Analyze** / **Generate documentation** actions as needed; switch between summary, JSON, and diagram tabs when available.
 
-6. Click **Analyze Code** to see the results.
+**Note:** `app.py` binds **`127.0.0.1`** in debug mode (local only). For a public deployment, use a production WSGI server (see **Deployment**).
 
-7. View the summary or switch to JSON view for detailed output.
+### Optional: LLM documentation
 
-8. View automatically generated diagrams:
-   - **Architecture**: Class structure and relationships
-   - **Sequence**: Function call sequences
-   - **Dependencies**: Module import relationships
+1. Obtain an API key from [OpenAI](https://platform.openai.com/).
+2. Configure **`OPENAI_API_KEY`** (see step 5 under **Installation**).
+3. With a key set, the backend can use **GPT-4o-mini** for richer text; without it, outputs are template-based.
 
-9. Click **Generate Documentation** to create professional documentation:
-   - **Docstrings**: Code with PEP 257 compliant docstrings
-   - **README.md**: Project documentation
-   - **ARCHITECTURE.md**: Architecture and design documentation
+## Testing
 
-### Optional: Enhanced AI Documentation
-
-For AI-powered documentation generation:
-1. Get an OpenAI API key from [OpenAI](https://platform.openai.com/).
-2. Set **`OPENAI_API_KEY`** in the environment (see **Installation** step 5): `.env` locally, or your host’s env config (e.g. Render **Environment** variables). You can also pass **`api_key`** in **`POST /api/generate-docs`** JSON for programmatic use.
-3. With a valid key configured, the backend uses **GPT-4o-mini** for richer docstrings, README, and architecture text.
-
-**Note:** Without **`OPENAI_API_KEY`**, the tool uses **template-based** generation only (no LLM calls).
-
-### Production server (Gunicorn)
-
-For a production-style run (similar to [Render](https://render.com)), install dependencies and start Gunicorn with an explicit port if **`PORT`** is unset locally:
-
-```bash
-pip install -r requirements.txt
-PORT=5001 gunicorn --bind 0.0.0.0:$PORT app:app
-```
-
-On Render, **`PORT`** is set automatically; the blueprint in **`render.yaml`** uses `gunicorn --bind 0.0.0.0:$PORT app:app`.
-
-## Running tests
-
-From the project root with your virtual environment activated:
+Run the test suite with:
 
 ```bash
 pytest
 ```
 
-With coverage (uses **`.coveragerc`** to omit virtualenvs and cache):
+With coverage (if configured):
 
 ```bash
 pytest --cov=. --cov-report=term-missing
 ```
 
-## Deploying on Render
+## Deployment (Render)
 
-1. Connect this repository to Render and create a **Web Service** (or use **Blueprints** with **`render.yaml`**).
-2. **Build:** `pip install -r requirements.txt` (already in **`render.yaml`**).
-3. **Start:** `gunicorn --bind 0.0.0.0:$PORT app:app`.
-4. Set **`OPENAI_API_KEY`** in the service **Environment** tab if you want LLM-backed docs (`sync: false` in the YAML means the value is not stored in git—configure it in the dashboard).
+This repo includes **`render.yaml`** (Blueprint-style) using **gunicorn**:
 
-## Example Output
+```bash
+gunicorn --bind 0.0.0.0:$PORT app:app
+```
 
-The tool provides:
-- **Summary Statistics**: Quick overview of code structure counts
-- **Detailed Breakdown**: 
-  - Function details (name, line number, type, parameters, return types)
-  - Class information (name, bases, methods, variables)
-  - Import statements
-  - Decorators used
-  - Variable declarations
+Set secrets such as **`OPENAI_API_KEY`** in the Render dashboard; do not commit them to `render.yaml`.
 
-## Technology Stack
-
-- **Backend**: Flask (Python), Gunicorn for production
-- **Frontend**: HTML, CSS, JavaScript
-- **Parsing**: Python AST module
-- **Diagrams**: Mermaid.js for visualization
-- **Documentation**: OpenAI GPT-4o-mini (optional) or template-based
-- **API**: RESTful JSON API
-
-## Project Structure
+## Project structure
 
 ```
 DocuMind/
-├── app.py                 # Flask application and API endpoints
-├── code_parser.py         # Core Python AST parser
+├── app.py                 # Flask app and HTTP API
+├── code_parser.py         # Python parser
 ├── javascript_parser.py   # JavaScript parser
 ├── sql_parser.py          # SQL parser
-├── language_detector.py   # Language detection / overrides
-├── doc_generator.py       # Documentation (LLM + templates)
-├── diagram_generator.py   # Mermaid diagrams
+├── language_detector.py   # Language detection / normalization
+├── project_scanner.py     # Folder scan + aggregate parse
+├── doc_generator.py       # Doc generation (LLM + templates)
+├── diagram_generator.py   # Mermaid diagram generation
 ├── svg_generator.py       # SVG flowchart generation
-├── project_scanner.py     # Project / repo scanning helpers
-├── render.yaml            # Render Blueprint (build + start + env hint)
-├── .env.example           # Example environment variables (copy to .env)
-├── .coveragerc            # pytest-cov omit patterns
 ├── templates/
 │   └── index.html         # Web UI
 ├── static/
 │   ├── style.css
 │   └── script.js
-├── tests/
-│   ├── conftest.py        # Pytest fixtures (Flask test client)
-│   ├── sample_code_for_testing.py
-│   ├── test_parser_debug.py
-│   └── test_*.py          # Parser, API, diagrams, docs, language, SQL/JS, etc.
+├── tests/                 # pytest tests
 ├── requirements.txt
+├── render.yaml            # Render deploy blueprint
+├── .env.example           # Example environment file
 └── README.md
 ```
 
-## API Endpoints
+## API reference
 
-### POST /api/parse
+All JSON endpoints expect **`Content-Type: application/json`** unless noted.
 
-Analyzes code and returns structured information (currently supports Python, JavaScript, and SQL parsing; other languages can still be detected but may not yet have full parser support).
+### `POST /api/parse`
 
-**Request body (JSON):**
+Parse a single code string.
 
-| Field        | Required | Description |
-|-------------|----------|-------------|
-| `code`      | Yes      | Source to parse |
-| `filename`  | No       | Hint for detection (extension) |
-| `language`  | No       | Override, e.g. `"python"`, `"javascript"`, `"sql"` |
-
-Example:
+**Body:**
 
 ```json
 {
-  "code": "your code here",
-  "filename": "optional_filename.py",
+  "code": "your code",
+  "filename": "optional.py",
   "language": "python"
 }
 ```
 
-**Response:**
-```json
-{
-  "summary": {
-    "total_functions": 5,
-    "sync_functions": 3,
-    "async_functions": 1,
-    "nested_functions": 1,
-    "total_classes": 2,
-    "total_methods": 4,
-    "global_variables": 3,
-    "class_variables": 2,
-    "instance_variables": 5,
-    "total_decorators": 2,
-    "total_imports": 5
-  },
-  "functions": [...],
-  "classes": [...],
-  "global_variables": [...],
-  "imports": [...],
-  "decorators": [...]
-}
-```
+`language` may be omitted or `"auto"`. Supported overrides align with parsers: **`python`**, **`javascript`**, **`sql`** (see **Language handling** above).
 
-### POST /api/generate-docs
+**Response:** Parse result plus **`diagrams`** (e.g. `architecture`, `code_architecture`, `sequence`, `dependencies`, `flowchart`, `structure`), and optional **`info_messages`** / **`language`**.
 
-Generates professional documentation for Python code.
+### `POST /api/generate-docs`
 
-**Request body (JSON):**
+Generate docstrings / README / architecture text from **Python** source (uses `CodeParser`).
 
-| Field      | Required | Description |
-|-----------|----------|-------------|
-| `code`    | Yes      | Python source |
-| `api_key` | No       | OpenAI key for this request only (prefer **`OPENAI_API_KEY`** in env) |
-
-Example:
+**Body:**
 
 ```json
 {
-  "code": "your python code here",
+  "code": "def foo(): pass",
   "api_key": "sk-..."
 }
 ```
 
-**Response:**
+`api_key` is optional if `OPENAI_API_KEY` is set.
+
+**Response:** `success`, `used_llm`, `documentation` (`docstrings`, `readme`, `architecture`, …).
+
+### `POST /api/generate-project-docs`
+
+Generate documentation from an aggregated **project** parse result.
+
+**Body:**
+
 ```json
 {
-  "success": true,
-  "used_llm": true,
-  "documentation": {
-    "docstrings": "code with PEP 257 docstrings...",
-    "readme": "# Project Documentation\n\n...",
-    "architecture": "# Architecture Documentation\n\n..."
-  }
+  "project_data": { },
+  "api_key": "sk-..."
 }
 ```
 
-### Other JSON API routes
+### `POST /api/parse-project`
 
-All routes accept **`POST`** with JSON unless noted. See **`app.py`** for exact payloads and responses.
+Parse a project directory on the **machine running the server**.
 
-| Route | Purpose |
-|-------|---------|
-| `/api/generate-project-docs` | Documentation for a scanned project payload |
-| `/api/parse-project` | Parse a project layout from JSON (paths + file contents) |
-| `/api/parse-uploaded-project` | Parse an uploaded project archive |
-| `/api/parse-github-repo` | Fetch and parse a public GitHub repository |
-| `/api/generate-svg-flowchart` | Generate an SVG flowchart from analyzed code |
+**Body:**
+
+```json
+{
+  "folder_path": "/absolute/path/to/project"
+}
+```
+
+**Response:** Aggregated parse data, **`diagrams`** (whole project), and **`file_diagrams`** (per file).
+
+### `POST /api/parse-uploaded-project`
+
+**`multipart/form-data`** with field **`files`** (multiple files). Supported extensions include `.py`, `.js`, `.jsx`, `.sql`, and others listed in `app.py` (see source for the current set).
+
+**Response:** Same aggregate shape as project parse, including **`diagrams`** and **`file_diagrams`**.
+
+### `POST /api/parse-github-repo`
+
+Clone a GitHub repo to a temporary directory and parse it.
+
+**Body:**
+
+```json
+{
+  "repo_url": "https://github.com/org/repo.git"
+}
+```
+
+**Response:** Aggregate parse plus **`github_repo_url`**, **`cloned_path`**, **`detected_languages`**, **`diagrams`**, **`file_diagrams`**.
+
+**Requirements:** `git` available on the server; network access to GitHub.
+
+### `POST /api/generate-svg-flowchart`
+
+**Body:**
+
+```json
+{
+  "code": "def foo():\n    return 1\n",
+  "function_name": "foo"
+}
+```
+
+**Response:** `image/svg+xml` attachment **`flowchart.svg`** (Python-only parse path).
+
+## Technology stack
+
+- **Backend:** Flask (Python), flask-cors, gunicorn (production)
+- **Frontend:** HTML, CSS, JavaScript
+- **Parsing:** `ast` (Python), custom JS/SQL parsers
+- **Diagrams:** Mermaid (strings for rendering in the UI)
+- **Docs:** OpenAI API (optional) or templates
 
 ## License
 
 This project is open source and available for educational and commercial use.
-
