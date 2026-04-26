@@ -1,6 +1,6 @@
 # DocuMind
 
-DocuMind is a code documentation and analysis tool. It parses source (with a focus on **Python**, **JavaScript**, and **SQL**), summarizes structure, renders **Mermaid** diagrams, and can generate **docstrings**, **README**, and **architecture** text using **templates** or an optional **OpenAI** model.
+DocuMind is a code documentation and analysis tool. It parses source with **deep structural** parsers for **Python**, **JavaScript**, and **SQL**, uses a **universal regex fallback** for other text-based languages, summarizes structure, renders **Mermaid** diagrams, and can generate **docstrings**, **README**, and **architecture** text using **templates** or an optional **OpenAI** model.
 
 ## Features
 
@@ -13,7 +13,8 @@ DocuMind is a code documentation and analysis tool. It parses source (with a foc
   - **GitHub**: clone and parse via `POST /api/parse-github-repo`
 - **Language handling**:
   - **Parse as** override or **Auto** detection from filename and content
-  - **Structural parsing** is implemented for **Python**, **JavaScript**, and **SQL**. The UI and bulk scanners may accept other extensions (e.g. C/C++, Java, PHP); those files are best-effort and may not parse meaningfully until a dedicated parser exists.
+  - **Deep structural parsing** (AST-level or project-specific where implemented): **Python**, **JavaScript/JSX** (including **TypeScript/TSX** on the same parser path), and **SQL**
+  - **Universal fallback parsing** (regex/text heuristics) for all other text-based code and markup, including: **Java**, **C**, **C++**, **C#**, **Go**, **Rust**, **Ruby**, **PHP**, **Swift**, **Kotlin**, **HTML**, **CSS**, **JSON**, **YAML**, **XML**, and similar files, so projects are still ingested, summarized, and available to the **chatbot/RAG** without being marked unsupported
 - **Documentation generation**:
   - **PEP 257-style docstrings** (Python-oriented pipeline)
   - **README.md** and **ARCHITECTURE.md**-style outputs with module responsibility and functional overview where data is available
@@ -122,6 +123,7 @@ DocuMind/
 ├── javascript_parser.py   # JavaScript parser
 ├── sql_parser.py          # SQL parser
 ├── language_detector.py   # Language detection / normalization
+├── universal_parser.py   # Regex fallback for non–Python/JS/SQL text sources
 ├── project_scanner.py     # Folder scan + aggregate parse
 ├── doc_generator.py       # Doc generation (LLM + templates)
 ├── diagram_generator.py   # Mermaid diagram generation

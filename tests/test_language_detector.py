@@ -25,6 +25,12 @@ def test_detect_sql_from_sql_extension():
     assert LanguageDetector.detect("schema.sql") == "sql"
 
 
+def test_detect_universal_languages_by_extension():
+    assert LanguageDetector.detect("src/Hello.java") == "java"
+    assert LanguageDetector.detect("main.go") == "go"
+    assert LanguageDetector.detect("lib.rs") == "rust"
+
+
 def test_unknown_extension_without_code_returns_none():
     assert LanguageDetector.detect("data.unknown") is None
     assert LanguageDetector.detect_from_extension("file.xyz") is None

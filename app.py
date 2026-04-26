@@ -11,7 +11,7 @@ import tempfile
 import subprocess
 import shutil
 from pathlib import Path
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional, Tuple
 from code_parser import CodeParser
 from doc_generator import DocumentationGenerator
 from diagram_generator import DiagramGenerator
@@ -19,10 +19,65 @@ from svg_generator import SVGFlowchartGenerator
 from language_detector import LanguageDetector, NORMALIZED_LANGUAGES
 from javascript_parser import JavaScriptParser
 from sql_parser import SQLParser
+from universal_parser import UniversalParser, resolve_language_label, should_index_file_by_path, is_probably_binary_bytes
 from project_scanner import scan_project
+from rag_engine import RAGEngine
+from chatbot_service import answer_question
 
 app = Flask(__name__)
 CORS(app)
+
+# Chatbot RAG: raw file/project sources for /api/chat retrieval
+CURRENT_PROJECT_FILES = []
+# In-process session chat for /api/chat (last 6 messages only; not persisted)
+CHAT_HISTORY = []
+rag_engine = RAGEngine()
+
+
+def _trim_session_chat() -> None:
+    """Keep at most 6 {role, content} items in CHAT_HISTORY."""
+    global CHAT_HISTORY
+    if len(CHAT_HISTORY) > 6:
+        CHAT_HISTORY = CHAT_HISTORY[-6:]
+
+
+def _set_rag_project_files(file_entries: List[Dict[str, Any]]) -> None:
+    """Refresh in-memory RAG index; failures are logged and do not break callers."""
+    global CURRENT_PROJECT_FILES
+    try:
+        CURRENT_PROJECT_FILES = list(file_entries) if file_entries else []
+        rag_engine.build_index(CURRENT_PROJECT_FILES)
+    except Exception as e:
+        import traceback
+        print(f"DocuMind RAG index update failed (non-fatal): {e!s}\n{traceback.format_exc()}")
+
+
+def _load_rag_files_from_scan_result(
+    root_path: str, all_results: Dict[str, Any]
+) -> List[Dict[str, Any]]:
+    """Read raw text for each file in a scan_project / scan result, for RAG."""
+    out: List[Dict[str, Any]] = []
+    root_path = (root_path or "").strip()
+    for fd in all_results.get("file_details") or []:
+        if not isinstance(fd, dict) or fd.get("error"):
+            continue
+        relp = fd.get("path")
+        abspath = fd.get("absolute_path")
+        read_path = abspath or ""
+        if not read_path and root_path and relp:
+            read_path = os.path.join(root_path, relp)
+        if not read_path or not os.path.isfile(read_path):
+            continue
+        try:
+            with open(read_path, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+        except OSError:
+            continue
+        path_key = relp or read_path
+        if not path_key:
+            path_key = read_path
+        out.append({"path": str(path_key), "content": content})
+    return out
 
 def generate_per_file_diagrams(file_details: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
     """Generate diagrams for each file individually.
@@ -265,35 +320,48 @@ def clone_github_repo(repo_url: str) -> str:
             shutil.rmtree(temp_dir, ignore_errors=True)
         raise ValueError(f'Error cloning repository {repo_url}: {str(e)}')
 
-def parse_code_auto(code: str, language: str) -> dict:
+def parse_code_auto(code: str, language: str, filename: Optional[str] = None) -> dict:
     """Parse code automatically based on detected language.
     
     Args:
         code: Source code to parse
         language: Normalized language name (lowercase)
-        
+        filename: Optional path/name for universal fallback heuristics
+
     Returns:
         Parsed code result dictionary
     """
-    # Ensure language is normalized to lowercase
-    lang_normalized = language.lower() if language else 'python'
+    lang_normalized = (language or "text").lower()
     
-    if lang_normalized == 'python':
+    if lang_normalized == "python":
         parser = CodeParser()
         result = parser.parse(code)
-        # Normalize variable fields: ensure all variables have name, type, line, source
         result = normalize_variable_fields(result)
         return result
-    elif lang_normalized == 'javascript':
+    elif lang_normalized == "javascript":
         parser = JavaScriptParser()
-        result = parser.parse(code)
-        return result
-    elif lang_normalized == 'sql':
+        return parser.parse(code)
+    elif lang_normalized == "sql":
         parser = SQLParser()
-        result = parser.parse(code)
-        return result
-    else:
-        raise ValueError(f'Language "{lang_normalized}" is not yet supported. Supported languages: python, javascript, sql.')
+        return parser.parse(code)
+    u = UniversalParser()
+    try:
+        raw = u.parse(code or "", filename or "snippet")
+        return u.to_app_parse_result(raw)
+    except Exception as exc:
+        raw = {
+            "language": lang_normalized,
+            "filename": filename or "",
+            "summary": f"Analysis limited: {exc}",
+            "imports": [],
+            "classes": [],
+            "functions": [],
+            "variables": [],
+            "endpoints": [],
+            "line_count": len((code or "").splitlines()),
+            "parser_type": "universal_fallback",
+        }
+        return u.to_app_parse_result(raw)
 
 def normalize_variable_fields(result: dict) -> dict:
     """Normalize variable fields to have consistent structure: name, type, line, source.
@@ -353,6 +421,105 @@ def normalize_variable_fields(result: dict) -> dict:
 def home():
     return render_template("index.html")
 
+
+def _api_chat_format_sources(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Map RAG chunk dicts to the /api/chat sources schema."""
+    out: List[Dict[str, Any]] = []
+    for ch in chunks:
+        out.append(
+            {
+                "file": ch.get("file", "") or "",
+                "start_line": ch.get("start_line", 0),
+                "end_line": ch.get("end_line", 0),
+            }
+        )
+    return out
+
+
+@app.route("/api/chat", methods=["POST"])
+def api_chat():
+    """DocuMind floating chat: JSON body { "question": "..." } + RAG over CURRENT_PROJECT_FILES."""
+    global CHAT_HISTORY
+    try:
+        if not request.is_json:
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": "Request must be JSON with a 'question' field.",
+                    }
+                ),
+                400,
+            )
+        data = request.get_json(silent=True) or {}
+        question = (data.get("question") or "").strip()
+        if not question:
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": "Question is required.",
+                    }
+                ),
+                400,
+            )
+        if not CURRENT_PROJECT_FILES:
+            return (
+                jsonify(
+                    {
+                        "success": False,
+                        "error": "Please upload or analyze a file/project before asking questions.",
+                    }
+                ),
+                400,
+            )
+
+        retrieved_chunks = rag_engine.retrieve(question, top_k=5)
+        if not retrieved_chunks:
+            not_found = "I could not find this in the uploaded project."
+            CHAT_HISTORY.append({"role": "user", "content": question})
+            CHAT_HISTORY.append({"role": "assistant", "content": not_found})
+            _trim_session_chat()
+            return (
+                jsonify(
+                    {
+                        "success": True,
+                        "answer": not_found,
+                        "sources": [],
+                    }
+                ),
+                200,
+            )
+
+        # Prior turns for the model; current question + RAG is added inside answer_question
+        history_for_model = list(CHAT_HISTORY)
+        answer = answer_question(question, retrieved_chunks, history_for_model)
+        CHAT_HISTORY.append({"role": "user", "content": question})
+        CHAT_HISTORY.append({"role": "assistant", "content": answer})
+        _trim_session_chat()
+        sources = _api_chat_format_sources(retrieved_chunks)
+        return (
+            jsonify(
+                {
+                    "success": True,
+                    "answer": answer,
+                    "sources": sources,
+                }
+            ),
+            200,
+        )
+    except Exception as e:
+        return (
+            jsonify(
+                {
+                    "success": False,
+                    "error": str(e) or "An unexpected error occurred.",
+                }
+            ),
+            500,
+        )
+
+
 @app.route('/api/parse', methods=['POST'])
 def parse_code():
     detected_language = None
@@ -380,7 +547,10 @@ def parse_code():
                 return jsonify({'error': f'Unsupported language "{language_override}". Supported: {", ".join(NORMALIZED_LANGUAGES)}'}), 400
         else:
             detected_language = LanguageDetector.detect(filename=filename, code=code)
-            lang_normalized = (detected_language or 'python').lower()
+            if detected_language:
+                lang_normalized = detected_language.lower()
+            else:
+                lang_normalized = resolve_language_label(filename, code)
         
         # Show info message for JavaScript about tree-sitter usage
         info_messages = []
@@ -392,7 +562,7 @@ def parse_code():
         
         # Parse code with normalized language (language is already lowercased)
         try:
-            result = parse_code_auto(code, lang_normalized)
+            result = parse_code_auto(code, lang_normalized, filename)
         except ValueError as e:
             return jsonify({
                 'error': str(e),
@@ -437,6 +607,14 @@ def parse_code():
             result['diagrams'] = {}
             result['diagram_error'] = f'Error generating diagrams: {str(diagram_error)}'
         
+        _set_rag_project_files(
+            [
+                {
+                    "path": (str(filename).strip() if filename else "") or "pasted_code.py",
+                    "content": code,
+                }
+            ]
+        )
         return jsonify(result)
     except SyntaxError as e:
         # Only catch SyntaxError for Python code
@@ -577,6 +755,9 @@ def parse_project():
             all_results['file_diagrams'] = {}
             all_results['diagrams'] = {}
         
+        _set_rag_project_files(
+            _load_rag_files_from_scan_result(folder_path, all_results)
+        )
         return jsonify(all_results)
         
     except ValueError as e:
@@ -602,33 +783,38 @@ def parse_uploaded_project():
         if not files or len(files) == 0:
             return jsonify({'error': 'No files provided'}), 400
         
-        # Supported file extensions
-        supported_extensions = {
-            '.py', '.pyw', '.pyi',  # Python
-            '.js', '.jsx', '.mjs',  # JavaScript
-            '.java',                 # Java
-            '.c', '.cpp', '.cc', '.cxx', '.h', '.hpp', '.hxx',  # C/C++
-            '.php', '.phtml',        # PHP
-            '.sql'                   # SQL
-        }
-        
-        # Filter supported files
-        supported_files = []
+        # Accept any text/code file; skip binaries and same paths as project scan
+        accepted_payloads: List[Tuple[str, str]] = []
         for file in files:
-            if file.filename:
-                _, ext = os.path.splitext(file.filename)
-                if ext.lower() in supported_extensions:
-                    supported_files.append(file)
+            if not file or not file.filename:
+                continue
+            file_path = file.filename
+            if hasattr(file, 'webkitRelativePath') and file.webkitRelativePath:
+                file_path = file.webkitRelativePath
+            norm = (file_path or "").replace("\\", "/")
+            if not should_index_file_by_path(norm):
+                continue
+            try:
+                raw = file.read()
+            except OSError:
+                continue
+            if is_probably_binary_bytes(raw):
+                continue
+            code = raw.decode('utf-8', errors='ignore')
+            accepted_payloads.append((file_path, code))
         
-        if not supported_files:
-            return jsonify({'error': 'No supported files found. Supported extensions: .py, .js, .jsx, .java, .c, .cpp, .php, .sql'}), 400
+        if not accepted_payloads:
+            return jsonify({
+                'error': 'No readable text or code files found. Skipped binary files and paths under .git, node_modules, venv, etc.',
+            }), 400
         
+        rag_file_entries: List[Dict[str, str]] = []
         # Initialize aggregated results (similar to scan_project)
         aggregated = {
             'files': [],
             'file_details': [],
             'summary': {
-                'total_files': len(supported_files),
+                'total_files': 0,
                 'total_lines': 0,
                 'total_functions': 0,
                 'sync_functions': 0,
@@ -667,22 +853,23 @@ def parse_uploaded_project():
         }
         
         # Parse each uploaded file
-        for file in supported_files:
+        for file_path, code in accepted_payloads:
             try:
-                # Read file content
-                code = file.read().decode('utf-8', errors='ignore')
+                rag_file_entries.append(
+                    {
+                        "path": str(file_path) if file_path is not None else "",
+                        "content": code,
+                    }
+                )
+                detected_language = LanguageDetector.detect(
+                    filename=file_path, code=code
+                )
+                if detected_language:
+                    lang_normalized = detected_language.lower()
+                else:
+                    lang_normalized = resolve_language_label(file_path, code)
                 
-                # Get file path (use webkitRelativePath if available, otherwise filename)
-                file_path = file.filename
-                if hasattr(file, 'webkitRelativePath') and file.webkitRelativePath:
-                    file_path = file.webkitRelativePath
-                
-                # Detect language
-                detected_language = LanguageDetector.detect(filename=file_path, code=code)
-                lang_normalized = (detected_language or 'python').lower()
-                
-                # Parse file (parse_code_auto already normalizes variables for Python)
-                result = parse_code_auto(code, lang_normalized)
+                result = parse_code_auto(code, lang_normalized, file_path)
                 
                 # Calculate lines of code
                 lines_of_code = len(code.split('\n'))
@@ -705,6 +892,7 @@ def parse_uploaded_project():
                     'path': file_path,
                     'absolute_path': file_path,
                     'language': lang_normalized,
+                    'lines_of_code': lines_of_code,
                     'functions': result.get('functions', []),
                     'classes': result.get('classes', []),
                     'tables': result.get('tables', []),
@@ -820,6 +1008,7 @@ def parse_uploaded_project():
                 continue
         
         # Calculate total variables after processing all files
+        aggregated['summary']['total_files'] = len(aggregated['files'])
         aggregated['summary']['total_variables'] = (
             aggregated['summary']['global_variables'] +
             aggregated['summary']['local_variables'] +
@@ -850,6 +1039,7 @@ def parse_uploaded_project():
             aggregated['file_diagrams'] = {}
             aggregated['diagrams'] = {}
         
+        _set_rag_project_files(rag_file_entries)
         return jsonify(aggregated)
         
     except Exception as e:
@@ -980,6 +1170,9 @@ def parse_github_repo():
         all_results['cloned_path'] = clone_path
         all_results['detected_languages'] = sorted(list(detected_languages))
         
+        _set_rag_project_files(
+            _load_rag_files_from_scan_result(clone_path, all_results)
+        )
         # Note: We don't clean up the temp directory here to allow for potential
         # re-analysis. The OS will clean it up eventually, or it can be cleaned
         # in a background task if needed.

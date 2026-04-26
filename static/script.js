@@ -406,20 +406,19 @@ if (uploadArea && fileInput) {
 function handleFile(file) {
     // Store filename for language detection
     currentFilename = file.name;
-    
-    // Check if file extension is supported
-    const extension = file.name.toLowerCase().substring(file.name.lastIndexOf('.'));
-    const supportedExtensions = [
-        '.py', '.pyw', '.pyi',  // Python
-        '.js', '.jsx', '.mjs',  // JavaScript
-        '.java',                 // Java
-        '.c', '.cpp', '.cc', '.cxx', '.h', '.hpp', '.hxx',  // C/C++
-        '.php', '.phtml',        // PHP
-        '.sql'                   // SQL
+    const nameLower = (file.name || '').toLowerCase();
+    const extension = nameLower.indexOf('.') >= 0
+        ? nameLower.substring(nameLower.lastIndexOf('.'))
+        : '';
+    // Block obvious binaries only; any text/source is accepted (universal + deep parsers on server)
+    const blockedExtensions = [
+        '.exe', '.dll', '.so', '.dylib', '.pdb', '.obj', '.o', '.a', '.lib', '.class',
+        '.pyc', '.pyo', '.pyd', '.bin', '.dat', '.db', '.sqlite', '.sqlite3', '.zip',
+        '.7z', '.rar', '.tar', '.gz', '.bz2', '.xz', '.png', '.jpg', '.jpeg', '.gif',
+        '.webp', '.ico', '.bmp', '.mp4', '.webm', '.mp3', '.pdf', '.woff', '.woff2', '.ttf', '.eot', '.otf',
     ];
-    
-    if (!supportedExtensions.includes(extension)) {
-        showError(`File extension "${extension}" is not supported. Supported extensions: .py, .js, .jsx, .java, .c, .cpp, .php, .sql`);
+    if (extension && blockedExtensions.includes(extension)) {
+        showError(`File type ${extension} looks binary. Use a text or source file.`);
         return;
     }
     
@@ -833,7 +832,7 @@ function displayProjectSummary(data) {
         const repoUrl = data.github_repo_url;
         const clonePath = data.cloned_path || 'N/A';
         const totalFiles = summary.total_files || 0;
-        const detectedLanguages = data.detected_languages || [];
+        const detectedLanguages = Array.isArray(data.detected_languages) ? data.detected_languages : [];
         const languagesDisplay = detectedLanguages.length > 0 
             ? detectedLanguages.join(', ') 
             : 'None detected';
@@ -1001,14 +1000,14 @@ function renderFileDetails(fileDetails, selectedIndex = null) {
         const fileId = `file-expander-${originalIndex}`;
         const filePath = fileDetail.path || fileDetail.absolute_path || 'Unknown';
         const fileLang = fileDetail.language || 'unknown';
-        const functions = fileDetail.functions || [];
-        const classes = fileDetail.classes || [];
-        const tables = fileDetail.tables || [];
-        const relationships = fileDetail.relationships || [];
-        const globalVars = fileDetail.global_variables || [];
-        const localVars = fileDetail.local_variables || [];
-        const execVars = fileDetail.execution_scope_variables || [];
-        const imports = fileDetail.imports || [];
+        const functions = Array.isArray(fileDetail.functions) ? fileDetail.functions : [];
+        const classes = Array.isArray(fileDetail.classes) ? fileDetail.classes : [];
+        const tables = Array.isArray(fileDetail.tables) ? fileDetail.tables : [];
+        const relationships = Array.isArray(fileDetail.relationships) ? fileDetail.relationships : [];
+        const globalVars = Array.isArray(fileDetail.global_variables) ? fileDetail.global_variables : [];
+        const localVars = Array.isArray(fileDetail.local_variables) ? fileDetail.local_variables : [];
+        const execVars = Array.isArray(fileDetail.execution_scope_variables) ? fileDetail.execution_scope_variables : [];
+        const imports = Array.isArray(fileDetail.imports) ? fileDetail.imports : [];
         const hasError = fileDetail.error;
         
         // Get language badge color
@@ -1058,7 +1057,7 @@ function renderFileDetails(fileDetails, selectedIndex = null) {
                                     <div style="margin-bottom: 8px; padding: 8px; background: rgba(59, 130, 246, 0.1); border-radius: 4px; border-left: 3px solid #3b82f6;">
                                         <strong style="color: #60a5fa;">${func.name || 'unnamed'}</strong>
                                         <span style="color: #94a3b8; font-size: 0.85rem; margin-left: 10px;">Line ${func.line || 'N/A'}</span>
-                                        ${func.params ? `<div style="color: #cbd5e1; font-size: 0.9rem; margin-top: 4px;">Params: ${func.params.map(p => p.name || p).join(', ') || 'None'}</div>` : ''}
+                                        ${Array.isArray(func.params) && func.params.length ? `<div style="color: #cbd5e1; font-size: 0.9rem; margin-top: 4px;">Params: ${func.params.map(p => p.name || p).join(', ') || 'None'}</div>` : ''}
                                     </div>
                                 `).join('')}
                             </div>
@@ -1166,8 +1165,11 @@ function toggleFileExpander(fileId) {
 
 function displaySummary(data) {
     const summaryView = document.getElementById('summary-view');
-    const summary = data.summary;
-    const language = (data.language || 'python').toLowerCase();
+    if (!summaryView) {
+        return;
+    }
+    const summary = data.summary || {};
+    const language = (data.language || 'code').toLowerCase();
     
     // Reset variable section counter
     varSectionCounter = 0;
@@ -1211,7 +1213,7 @@ function displaySummary(data) {
         `;
         
         // Add tables section
-        if (data.tables && data.tables.length > 0) {
+        if (Array.isArray(data.tables) && data.tables.length > 0) {
             summaryView.innerHTML += createDetailSection('Tables', data.tables, (table) => {
                 const columns = table.columns || [];
                 const pkCols = columns.filter(c => c.is_primary_key).map(c => c.name);
@@ -1256,7 +1258,7 @@ function displaySummary(data) {
         }
         
         // Add relationships section
-        if (data.relationships && data.relationships.length > 0) {
+        if (Array.isArray(data.relationships) && data.relationships.length > 0) {
             summaryView.innerHTML += createDetailSection('Foreign Key Relationships', data.relationships, (rel) => {
                 return `
                     <div class="detail-item">
@@ -1272,22 +1274,22 @@ function displaySummary(data) {
         return; // Exit early for SQL
     }
     
-    // Python/JavaScript display (original code)
+    // General parse display (Python / JS / SQL / universal fallback)
     summaryView.innerHTML = `
         <div class="stat-card">
             <h3>Total Functions</h3>
-            <div class="value">${summary.total_functions}</div>
+            <div class="value">${summary.total_functions != null ? summary.total_functions : 0}</div>
             <div style="margin-top: 10px; font-size: 0.85rem; color: #666;">
-                ${summary.sync_functions} sync, ${summary.async_functions} async, ${summary.nested_functions} nested
+                ${summary.sync_functions != null ? summary.sync_functions : 0} sync, ${summary.async_functions != null ? summary.async_functions : 0} async, ${summary.nested_functions != null ? summary.nested_functions : 0} nested
             </div>
         </div>
         <div class="stat-card">
             <h3>Classes</h3>
-            <div class="value">${summary.total_classes}</div>
+            <div class="value">${summary.total_classes != null ? summary.total_classes : 0}</div>
         </div>
         <div class="stat-card">
             <h3>Methods</h3>
-            <div class="value">${summary.total_methods}</div>
+            <div class="value">${summary.total_methods != null ? summary.total_methods : 0}</div>
         </div>
         <div class="stat-card">
             <h3>Variables</h3>
@@ -1298,36 +1300,39 @@ function displaySummary(data) {
         </div>
         <div class="stat-card">
             <h3>Class Variables</h3>
-            <div class="value">${summary.class_variables}</div>
+            <div class="value">${summary.class_variables != null ? summary.class_variables : 0}</div>
         </div>
         <div class="stat-card">
             <h3>Instance Variables</h3>
-            <div class="value">${summary.instance_variables}</div>
+            <div class="value">${summary.instance_variables != null ? summary.instance_variables : 0}</div>
         </div>
         <div class="stat-card">
             <h3>Decorators</h3>
-            <div class="value">${summary.total_decorators}</div>
+            <div class="value">${summary.total_decorators != null ? summary.total_decorators : 0}</div>
         </div>
         <div class="stat-card">
             <h3>Imports</h3>
-            <div class="value">${summary.total_imports}</div>
+            <div class="value">${summary.total_imports != null ? summary.total_imports : 0}</div>
         </div>
     `;
     
     // Add detailed sections
-    if (data.functions && data.functions.length > 0) {
-        summaryView.innerHTML += createDetailSection('Functions', data.functions, (f) => {
+    if (data.functions && Array.isArray(data.functions) && data.functions.length > 0) {
+        const funcs = Array.isArray(data.functions) ? data.functions : [];
+        summaryView.innerHTML += createDetailSection('Functions', funcs, (f) => {
             const type = f.is_async ? 'async' : 'sync';
             const nested = f.is_nested ? 'nested' : 'top-level';
+            const dec = f.decorators || [];
+            const par = f.parameters || [];
             return `
-                <div class="detail-item clickable-item" onclick="scrollToLine(${f.line}, 'function')" data-line="${f.line}" style="cursor: pointer;">
-                    <div class="name">${f.name} <span class="line-link-hint">(click to jump)</span></div>
+                <div class="detail-item clickable-item" onclick="scrollToLine(${f.line != null ? f.line : 0}, 'function')" data-line="${f.line != null ? f.line : 0}" style="cursor: pointer;">
+                    <div class="name">${f.name || 'unknown'} <span class="line-link-hint">(click to jump)</span></div>
                     <div class="meta">
-                        <span>Line: ${f.line}</span>
+                        <span>Line: ${f.line != null ? f.line : 'N/A'}</span>
                         <span>Type: ${type}</span>
                         <span>${nested}</span>
-                        ${f.decorators.length > 0 ? `<span>Decorators: ${f.decorators.join(', ')}</span>` : ''}
-                        ${f.parameters.length > 0 ? `<span>Params: ${f.parameters.join(', ')}</span>` : ''}
+                        ${dec.length > 0 ? `<span>Decorators: ${dec.join(', ')}</span>` : ''}
+                        ${par.length > 0 ? `<span>Params: ${par.join(', ')}</span>` : ''}
                         ${f.returns ? `<span>Returns: ${f.returns}</span>` : ''}
                     </div>
                 </div>
@@ -1335,23 +1340,29 @@ function displaySummary(data) {
         });
     }
     
-    if (data.classes && data.classes.length > 0) {
-        summaryView.innerHTML += createDetailSection('Classes', data.classes, (c) => {
+    if (data.classes && Array.isArray(data.classes) && data.classes.length > 0) {
+        const clsList = data.classes;
+        summaryView.innerHTML += createDetailSection('Classes', clsList, (c) => {
+            const bases = c.bases || [];
+            const decC = c.decorators || [];
+            const meths = c.methods || [];
+            const cvars = c.class_variables || [];
+            const ivars = c.instance_variables || [];
             // Format class name with base classes: "ClassName(BaseClass)"
-            const classNameDisplay = c.bases.length > 0 
-                ? `${c.name}(${c.bases.join(', ')})` 
-                : c.name;
+            const classNameDisplay = bases.length > 0
+                ? `${c.name || 'unknown'}(${bases.join(', ')})`
+                : (c.name || 'unknown');
             
             return `
-                <div class="detail-item clickable-item" onclick="scrollToLine(${c.line}, 'class')" data-line="${c.line}" style="cursor: pointer;">
+                <div class="detail-item clickable-item" onclick="scrollToLine(${c.line != null ? c.line : 0}, 'class')" data-line="${c.line != null ? c.line : 0}" style="cursor: pointer;">
                     <div class="name">${classNameDisplay} <span class="line-link-hint">(click to jump)</span></div>
                     <div class="meta">
-                        <span>Line: ${c.line}</span>
-                        ${c.bases.length > 0 ? `<span>Bases: ${c.bases.join(', ')}</span>` : ''}
-                        ${c.decorators.length > 0 ? `<span>Decorators: ${c.decorators.join(', ')}</span>` : ''}
-                        <span>Methods: ${c.methods.length}</span>
-                        <span>Class vars: ${c.class_variables.length}</span>
-                        <span>Instance vars: ${c.instance_variables.length}</span>
+                        <span>Line: ${c.line != null ? c.line : 'N/A'}</span>
+                        ${bases.length > 0 ? `<span>Bases: ${bases.join(', ')}</span>` : ''}
+                        ${decC.length > 0 ? `<span>Decorators: ${decC.join(', ')}</span>` : ''}
+                        <span>Methods: ${meths.length}</span>
+                        <span>Class vars: ${cvars.length}</span>
+                        <span>Instance vars: ${ivars.length}</span>
                     </div>
                 </div>
             `;
@@ -1362,7 +1373,7 @@ function displaySummary(data) {
     summaryView.innerHTML += '<div class="variables-container">';
     
     // Global Variables Section
-    if (data.global_variables && data.global_variables.length > 0) {
+    if (Array.isArray(data.global_variables) && data.global_variables.length > 0) {
         summaryView.innerHTML += createCollapsibleVariableSection(
             'Global Variables',
             data.global_variables,
@@ -1382,7 +1393,7 @@ function displaySummary(data) {
     }
     
     // Execution-Scope Variables Section
-    if (data.execution_scope_variables && data.execution_scope_variables.length > 0) {
+    if (Array.isArray(data.execution_scope_variables) && data.execution_scope_variables.length > 0) {
         summaryView.innerHTML += createCollapsibleVariableSection(
             'Execution-Scope Variables',
             data.execution_scope_variables,
@@ -1404,10 +1415,11 @@ function displaySummary(data) {
     
     // Collect all class variables
     const allClassVars = [];
-    if (data.classes && data.classes.length > 0) {
+    if (Array.isArray(data.classes) && data.classes.length > 0) {
         data.classes.forEach(cls => {
-            if (cls.class_variables && cls.class_variables.length > 0) {
-                cls.class_variables.forEach(v => {
+            const cv = cls.class_variables;
+            if (Array.isArray(cv) && cv.length > 0) {
+                cv.forEach(v => {
                     allClassVars.push({
                         ...v,
                         className: cls.name
@@ -1440,10 +1452,11 @@ function displaySummary(data) {
     
     // Collect all instance variables
     const allInstanceVars = [];
-    if (data.classes && data.classes.length > 0) {
+    if (Array.isArray(data.classes) && data.classes.length > 0) {
         data.classes.forEach(cls => {
-            if (cls.instance_variables && cls.instance_variables.length > 0) {
-                cls.instance_variables.forEach(v => {
+            const iv = cls.instance_variables;
+            if (Array.isArray(iv) && iv.length > 0) {
+                iv.forEach(v => {
                     allInstanceVars.push({
                         ...v,
                         className: cls.name
@@ -1475,7 +1488,7 @@ function displaySummary(data) {
     }
     
     // Local Variables Section (grouped by function)
-    if (data.local_variables && data.local_variables.length > 0) {
+    if (Array.isArray(data.local_variables) && data.local_variables.length > 0) {
         // Group local variables by function
         const varsByFunction = {};
         data.local_variables.forEach(v => {
@@ -1519,8 +1532,10 @@ function displaySummary(data) {
     summaryView.innerHTML += '</div>';
     
     // Code Insights Section (Warnings)
-    if (data.warnings && data.warnings.length > 0) {
-        summaryView.innerHTML += createDetailSection('Code Insights', data.warnings, (w) => {
+    if (data.warnings && Array.isArray(data.warnings) && data.warnings.length > 0) {
+        const warnList = data.warnings;
+        summaryView.innerHTML += createDetailSection('Code Insights', warnList, (w) => {
+            const severity = (w.severity || w.type || 'info').toString().toLowerCase();
             const severityColors = {
                 'warning': '#FF9800',
                 'error': '#F44336',
@@ -1531,8 +1546,8 @@ function displaySummary(data) {
                 'error': '❌',
                 'info': 'ℹ️'
             };
-            const color = severityColors[w.severity] || '#666';
-            const icon = severityIcons[w.severity] || 'ℹ️';
+            const color = severityColors[severity] || '#666';
+            const icon = severityIcons[severity] || 'ℹ️';
             
             let details = '';
             if (w.type === 'shadowed_variable' || w.type === 'global_override') {
@@ -1543,25 +1558,28 @@ function displaySummary(data) {
                 details = `<span>Previous definition at line ${w.previous_line}</span>`;
             }
             
+            const label = w.message != null ? w.message : (w.type ? String(w.type) : 'Insight');
+            const sevText = (w.severity || w.type || 'info').toString().toUpperCase();
             return `
                 <div class="detail-item warning-item" onclick="${w.line ? `scrollToLine(${w.line}, 'variable')` : ''}" style="cursor: ${w.line ? 'pointer' : 'default'};">
                     <div class="name">
                         <span style="color: ${color}; margin-right: 8px;">${icon}</span>
-                        ${w.message}
+                        ${label}
                     </div>
                     <div class="meta">
                         ${w.line ? `<span>Line: ${w.line}</span>` : ''}
                         ${w.function ? `<span>In: ${w.function}</span>` : ''}
                         ${details}
-                        <span style="color: ${color}; font-weight: 600;">${w.severity.toUpperCase()}</span>
+                        <span style="color: ${color}; font-weight: 600;">${sevText}</span>
                     </div>
                 </div>
             `;
         });
     }
     
-    if (data.imports && data.imports.length > 0) {
-        summaryView.innerHTML += createDetailSection('Imports', data.imports, (imp) => {
+    if (data.imports && Array.isArray(data.imports) && data.imports.length > 0) {
+        const importList = data.imports;
+        summaryView.innerHTML += createDetailSection('Imports', importList, (imp) => {
             if (imp.type === 'from_import') {
                 return `
                     <div class="detail-item">
@@ -1580,8 +1598,9 @@ function displaySummary(data) {
         });
     }
     
-    if (data.decorators && data.decorators.length > 0) {
-        summaryView.innerHTML += createDetailSection('Decorators', data.decorators, (d) => {
+    if (data.decorators && Array.isArray(data.decorators) && data.decorators.length > 0) {
+        const decList = data.decorators;
+        summaryView.innerHTML += createDetailSection('Decorators', decList, (d) => {
             return `
                 <div class="detail-item">
                     <div class="name">${d.name}</div>
@@ -1593,7 +1612,7 @@ function displaySummary(data) {
 }
 
 function createDetailSection(title, items, itemRenderer) {
-    if (items.length === 0) return '';
+    if (!Array.isArray(items) || items.length === 0) return '';
     
     return `
         <div class="detail-section">
@@ -1604,7 +1623,7 @@ function createDetailSection(title, items, itemRenderer) {
 }
 
 function createCollapsibleVariableSection(title, items, itemRenderer, scopeType) {
-    if (items.length === 0) return '';
+    if (!Array.isArray(items) || items.length === 0) return '';
     
     varSectionCounter++;
     const sectionId = `var-section-${scopeType}-${varSectionCounter}`;
@@ -2182,9 +2201,12 @@ function selectFile(fileIndex, fileDetail, data) {
 
 function displayFileSummary(fileDetail, fileDiagrams) {
     const summaryView = document.getElementById('summary-view');
+    if (!summaryView) {
+        return;
+    }
     const filePath = fileDetail.path || fileDetail.absolute_path || 'Unknown';
-    const functions = fileDetail.functions || [];
-    const classes = fileDetail.classes || [];
+    const functions = Array.isArray(fileDetail.functions) ? fileDetail.functions : [];
+    const classes = Array.isArray(fileDetail.classes) ? fileDetail.classes : [];
     const summary = fileDetail.summary || {};
     const linesOfCode = fileDetail.lines_of_code || summary.total_lines || 0;
     
@@ -2214,12 +2236,16 @@ function displayFileSummary(fileDetail, fileDiagrams) {
         <div style="margin-bottom: 30px;">
             <h3 style="color: #60a5fa; margin-bottom: 15px; font-size: 1.3rem;">🔧 Functions</h3>
             <div style="display: grid; gap: 12px;">
-                ${functions.map(func => `
+                ${functions.map(func => {
+                    const params = Array.isArray(func.parameters) ? func.parameters.join(', ') : (Array.isArray(func.params) ? func.params.map(p => p.name || p).join(', ') : '');
+                    const ds = func.docstring != null && typeof func.docstring === 'string' ? func.docstring : '';
+                    return `
                     <div style="padding: 15px; background: rgba(30, 41, 59, 0.6); border-radius: 10px; border-left: 3px solid #3b82f6; transition: all 0.2s;" onmouseover="this.style.background='rgba(59, 130, 246, 0.15)'" onmouseout="this.style.background='rgba(30, 41, 59, 0.6)'">
-                        <div style="color: #e2e8f0; font-family: 'Fira Code', monospace; font-weight: 600; font-size: 1rem;">${func.name}(${func.parameters ? func.parameters.join(', ') : ''})</div>
-                        ${func.docstring ? `<div style="color: #94a3b8; font-size: 0.9rem; margin-top: 8px; line-height: 1.5;">${func.docstring.substring(0, 150)}${func.docstring.length > 150 ? '...' : ''}</div>` : ''}
+                        <div style="color: #e2e8f0; font-family: 'Fira Code', monospace; font-weight: 600; font-size: 1rem;">${func.name}(${params})</div>
+                        ${ds ? `<div style="color: #94a3b8; font-size: 0.9rem; margin-top: 8px; line-height: 1.5;">${ds.substring(0, 150)}${ds.length > 150 ? '...' : ''}</div>` : ''}
                     </div>
-                `).join('')}
+                `;
+                }).join('')}
             </div>
         </div>
         ` : ''}
@@ -2531,3 +2557,410 @@ function switchDiagramFile(event) {
     }
 }
 
+/**
+ * DocuMind floating chat — independent; POST /api/chat { question } → { answer, sources }
+ */
+(function () {
+    const WELCOME = 'Upload or analyze a project, then ask me anything about it.';
+
+    let elRoot, elBackdrop, elPanel, elLauncher, elClose, elMessages, elInput, elSend;
+    let isOpen = false;
+    let isLoading = false;
+    const chatHistory = [];
+    let typingNode = null;
+
+    function getEl() {
+        elRoot = document.getElementById('dm-floating-chat-root');
+        if (!elRoot) {
+            return false;
+        }
+        elBackdrop = document.getElementById('dm-chat-backdrop');
+        elPanel = document.getElementById('dm-chat-panel');
+        elLauncher = document.getElementById('dm-chat-launcher');
+        elClose = document.getElementById('dm-chat-close');
+        elMessages = document.getElementById('dm-chat-messages');
+        elInput = document.getElementById('dm-chat-input');
+        elSend = document.getElementById('dm-chat-send');
+        return Boolean(elPanel && elLauncher && elMessages && elInput && elSend);
+    }
+
+    function setOpen(state) {
+        isOpen = state;
+        if (elPanel) {
+            elPanel.classList.toggle('is-open', state);
+            elPanel.setAttribute('aria-hidden', state ? 'false' : 'true');
+        }
+        if (elBackdrop) {
+            elBackdrop.classList.toggle('is-open', state);
+            elBackdrop.setAttribute('aria-hidden', state ? 'false' : 'true');
+        }
+        if (elLauncher) {
+            elLauncher.setAttribute('aria-expanded', state ? 'true' : 'false');
+        }
+        document.body.classList.toggle('dm-float-chat-open', state);
+        if (state && elInput) {
+            setTimeout(function () {
+                elInput.focus();
+            }, 200);
+        }
+    }
+
+    function scrollToBottom() {
+        if (!elMessages) {
+            return;
+        }
+        requestAnimationFrame(function () {
+            elMessages.scrollTop = elMessages.scrollHeight;
+        });
+    }
+
+    function autoResize() {
+        if (!elInput) {
+            return;
+        }
+        elInput.style.height = 'auto';
+        const h = Math.min(120, Math.max(40, elInput.scrollHeight));
+        elInput.style.height = h + 'px';
+    }
+
+    /**
+     * Normalize /api/chat sources: [{ file, start_line, end_line }, ...] or legacy strings.
+     */
+    function normalizeChatSources(raw) {
+        if (!Array.isArray(raw)) {
+            return [];
+        }
+        return raw
+            .map(function (s) {
+                if (s != null && typeof s === 'object' && !Array.isArray(s)) {
+                    return {
+                        file: s.file != null ? String(s.file) : '',
+                        start_line: Number(s.start_line) || 0,
+                        end_line: Number(s.end_line) || 0
+                    };
+                }
+                if (s != null && s !== '' && (typeof s === 'string' || typeof s === 'number')) {
+                    return { _legacyString: String(s).trim() };
+                }
+                return null;
+            })
+            .filter(function (x) {
+                if (!x) {
+                    return false;
+                }
+                if (x._legacyString) {
+                    return x._legacyString.length > 0;
+                }
+                if ((x.file || '').length > 0) {
+                    return true;
+                }
+                return (x.start_line > 0 || x.end_line > 0);
+            });
+    }
+
+    function formatDmSourceChipLabel(src) {
+        if (!src) {
+            return '';
+        }
+        if (src._legacyString) {
+            return src._legacyString;
+        }
+        const f = (src.file || '').trim();
+        if (!f) {
+            return '';
+        }
+        const a = src.start_line != null ? src.start_line : 0;
+        const b = src.end_line != null ? src.end_line : 0;
+        return f + ': lines ' + a + '-' + b;
+    }
+
+    function getDmSourceFocusPath(src) {
+        if (!src) {
+            return '';
+        }
+        if (src._legacyString) {
+            return src._legacyString;
+        }
+        return (src.file || '').trim();
+    }
+
+    function appendUserBubble(text) {
+        if (!elMessages) {
+            return;
+        }
+        const row = document.createElement('div');
+        row.className = 'dm-float-row dm-float-row--user';
+        const bubble = document.createElement('div');
+        bubble.className = 'dm-float-bubble dm-float-bubble--user';
+        bubble.textContent = text;
+        row.appendChild(bubble);
+        elMessages.appendChild(row);
+        scrollToBottom();
+    }
+
+    function appendAssistantBubble(text, sources, isError) {
+        if (!elMessages) {
+            return;
+        }
+        const row = document.createElement('div');
+        row.className = 'dm-float-row dm-float-row--assistant';
+        const bubble = document.createElement('div');
+        let cls = 'dm-float-bubble dm-float-bubble--assistant';
+        if (isError) {
+            cls += ' dm-float-bubble--error';
+        }
+        bubble.className = cls;
+        bubble.textContent = text;
+        row.appendChild(bubble);
+        elMessages.appendChild(row);
+
+        if (Array.isArray(sources) && sources.length) {
+            const chips = document.createElement('div');
+            chips.className = 'dm-float-sources';
+            chips.setAttribute('role', 'group');
+            chips.setAttribute('aria-label', 'Code sources');
+            sources.forEach(function (src) {
+                const label = formatDmSourceChipLabel(src);
+                if (!label) {
+                    return;
+                }
+                const focusPath = getDmSourceFocusPath(src);
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'dm-float-source-chip';
+                btn.textContent = label;
+                if (src && typeof src === 'object' && src.file != null) {
+                    btn.title = (String(src.file) + ' (lines ' + (src.start_line != null ? src.start_line : '?') + '–' + (src.end_line != null ? src.end_line : '?') + ')');
+                } else {
+                    btn.title = focusPath || label;
+                }
+                btn.setAttribute('data-source-path', focusPath || label);
+                btn.addEventListener('click', function () {
+                    if (focusPath) {
+                        floatingChatFocusSource(focusPath);
+                    }
+                });
+                chips.appendChild(btn);
+            });
+            if (chips.children.length) {
+                const chipRow = document.createElement('div');
+                chipRow.className = 'dm-float-row dm-float-row--assistant';
+                chipRow.appendChild(chips);
+                elMessages.appendChild(chipRow);
+            }
+        }
+        scrollToBottom();
+    }
+
+    function showTyping() {
+        if (typingNode || !elMessages) {
+            return;
+        }
+        const row = document.createElement('div');
+        row.className = 'dm-float-row dm-float-row--assistant';
+        const wrap = document.createElement('div');
+        wrap.className = 'dm-float-typing';
+        wrap.setAttribute('role', 'status');
+        wrap.setAttribute('aria-label', 'DocuMind is typing');
+        const t = document.createElement('span');
+        t.className = 'dm-float-typing__label';
+        t.textContent = 'typing...';
+        const dots = document.createElement('span');
+        dots.className = 'dm-float-typing__dots';
+        dots.setAttribute('aria-hidden', 'true');
+        for (let i = 0; i < 3; i++) {
+            const d = document.createElement('span');
+            dots.appendChild(d);
+        }
+        wrap.appendChild(t);
+        wrap.appendChild(dots);
+        row.appendChild(wrap);
+        elMessages.appendChild(row);
+        typingNode = row;
+        scrollToBottom();
+    }
+
+    function removeTyping() {
+        if (typingNode && typingNode.parentNode) {
+            typingNode.parentNode.removeChild(typingNode);
+        }
+        typingNode = null;
+    }
+
+    function floatingChatFocusSource(pathOrName) {
+        const t = (pathOrName || '').trim();
+        if (!t || !currentData || !Array.isArray(currentData.file_details)) {
+            return;
+        }
+        const details = currentData.file_details;
+        const norm = t.replace(/\\/g, '/');
+        let idx = -1;
+        for (let i = 0; i < details.length; i++) {
+            const fd = details[i];
+            const p = (fd.path || fd.absolute_path || '').replace(/\\/g, '/');
+            if (!p) {
+                continue;
+            }
+            if (p === norm || p.endsWith(norm) || p.split('/').pop() === norm.split('/').pop()) {
+                idx = i;
+                break;
+            }
+        }
+        if (idx < 0) {
+            return;
+        }
+        const out = document.getElementById('output-section');
+        if (out) {
+            if (out.style.display === 'none') {
+                out.style.display = 'block';
+            }
+            out.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+        }
+        selectFile(idx, details[idx], currentData);
+    }
+
+    function parseChatJson(data) {
+        if (!data || typeof data !== 'object') {
+            return { answer: '', sources: [] };
+        }
+        const answer = data.answer != null ? String(data.answer) : '';
+        const sources = normalizeChatSources(data.sources);
+        return { answer: answer, sources: sources };
+    }
+
+    function setLoading(loading) {
+        isLoading = loading;
+        if (elInput) {
+            elInput.disabled = loading;
+        }
+        if (elSend) {
+            elSend.disabled = loading;
+        }
+        if (elPanel) {
+            elPanel.setAttribute('aria-busy', loading ? 'true' : 'false');
+        }
+    }
+
+    function send() {
+        if (isLoading || !elInput) {
+            return;
+        }
+        const userText = (elInput.value || '').trim();
+        if (!userText) {
+            return;
+        }
+        elInput.value = '';
+        autoResize();
+        chatHistory.push({ role: 'user', content: userText });
+        appendUserBubble(userText);
+        setLoading(true);
+        showTyping();
+
+        function finishOk(p) {
+            removeTyping();
+            const a = p.answer != null ? String(p.answer) : '';
+            chatHistory.push({ role: 'assistant', content: a, sources: p.sources || [] });
+            if (!a) {
+                appendAssistantBubble('(No text in response.)', p.sources, false);
+            } else {
+                appendAssistantBubble(a, p.sources, false);
+            }
+            setLoading(false);
+        }
+
+        function finishErr(msg) {
+            removeTyping();
+            const t = (msg && String(msg)) || 'Something went wrong.';
+            chatHistory.push({ role: 'assistant', content: t, sources: [] });
+            appendAssistantBubble('Sorry — ' + t, [], true);
+            setLoading(false);
+        }
+
+        fetch('/api/chat', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ question: userText })
+        })
+            .then(function (res) {
+                return res.text().then(function (raw) {
+                    let j = {};
+                    if (raw) {
+                        try {
+                            j = JSON.parse(raw);
+                        } catch (e) {
+                            j = { error: raw.slice(0, 200) };
+                        }
+                    }
+                    if (!res.ok) {
+                        const err = (j && j.error) ? String(j.error) : 'Request failed (' + res.status + ')';
+                        throw new Error(err);
+                    }
+                    return parseChatJson(j);
+                });
+            })
+            .then(finishOk)
+            .catch(function (err) {
+                finishErr(err && err.message ? err.message : 'Network error');
+            });
+    }
+
+    function onKeydown(e) {
+        if (e.key !== 'Enter' || e.shiftKey) {
+            return;
+        }
+        e.preventDefault();
+        if (!isLoading) {
+            send();
+        }
+    }
+
+    function togglePanel() {
+        setOpen(!isOpen);
+    }
+
+    function init() {
+        if (!getEl()) {
+            return;
+        }
+        chatHistory.length = 0;
+        chatHistory.push({ role: 'assistant', content: WELCOME, sources: [] });
+        appendAssistantBubble(WELCOME, [], false);
+        setOpen(false);
+
+        elLauncher.addEventListener('click', function (e) {
+            e.stopPropagation();
+            togglePanel();
+        });
+        elClose.addEventListener('click', function () {
+            setOpen(false);
+        });
+        if (elBackdrop) {
+            elBackdrop.addEventListener('click', function () {
+                setOpen(false);
+            });
+        }
+        if (elPanel) {
+            elPanel.addEventListener('click', function (e) {
+                e.stopPropagation();
+            });
+        }
+        elSend.addEventListener('click', function () {
+            if (!isLoading) {
+                send();
+            }
+        });
+        elInput.addEventListener('keydown', onKeydown);
+        elInput.addEventListener('input', autoResize);
+        document.addEventListener('keydown', function (e) {
+            if (e.key === 'Escape' && isOpen) {
+                setOpen(false);
+            }
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', init);
+    } else {
+        init();
+    }
+})();

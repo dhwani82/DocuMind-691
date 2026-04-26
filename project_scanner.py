@@ -10,38 +10,41 @@ from language_detector import LanguageDetector
 from code_parser import CodeParser
 from javascript_parser import JavaScriptParser
 from sql_parser import SQLParser
+from universal_parser import (
+    UniversalParser,
+    should_index_file_by_path,
+    is_probably_binary_bytes,
+    resolve_language_label,
+)
 
 
-def _parse_code_auto(code: str, language: str) -> dict:
-    """Parse code automatically based on detected language.
-    
-    This is a local copy to avoid circular imports.
-    
-    Args:
-        code: Source code to parse
-        language: Normalized language name (lowercase)
-        
-    Returns:
-        Parsed code result dictionary
-    """
-    # Ensure language is normalized to lowercase
-    lang_normalized = language.lower() if language else 'python'
-    
-    if lang_normalized == 'python':
-        parser = CodeParser()
-        result = parser.parse(code)
-        # Note: normalize_variable_fields is handled in app.py for single file parsing
-        return result
-    elif lang_normalized == 'javascript':
-        parser = JavaScriptParser()
-        result = parser.parse(code)
-        return result
-    elif lang_normalized == 'sql':
-        parser = SQLParser()
-        result = parser.parse(code)
-        return result
-    else:
-        raise ValueError(f'Language "{lang_normalized}" is not yet supported. Supported languages: python, javascript, sql.')
+def _parse_code_auto(code: str, language: str, filename: str) -> dict:
+    """Parse code automatically (mirrors app.parse_code_auto; no circular import to app)."""
+    lang_normalized = (language or "text").lower()
+    if lang_normalized == "python":
+        return CodeParser().parse(code)
+    if lang_normalized == "javascript":
+        return JavaScriptParser().parse(code)
+    if lang_normalized == "sql":
+        return SQLParser().parse(code)
+    u = UniversalParser()
+    try:
+        return u.to_app_parse_result(u.parse(code or "", filename or "snippet"))
+    except Exception as exc:
+        return u.to_app_parse_result(
+            {
+                "language": lang_normalized,
+                "filename": filename or "",
+                "summary": f"Analysis limited: {exc}",
+                "imports": [],
+                "classes": [],
+                "functions": [],
+                "variables": [],
+                "endpoints": [],
+                "line_count": len((code or "").splitlines()),
+                "parser_type": "universal_fallback",
+            }
+        )
 
 
 def scan_project(root_path: str) -> Dict[str, Any]:
@@ -67,33 +70,29 @@ def scan_project(root_path: str) -> Dict[str, Any]:
     if not os.path.isdir(root_path):
         raise ValueError(f'Path is not a directory: {root_path}')
     
-    # Supported file extensions
-    supported_extensions = {
-        '.py', '.pyw', '.pyi',  # Python
-        '.js', '.jsx', '.mjs',  # JavaScript
-        '.java',                 # Java
-        '.c', '.cpp', '.cc', '.cxx', '.h', '.hpp', '.hxx',  # C/C++
-        '.php', '.phtml',        # PHP
-        '.sql'                   # SQL
-    }
-    
     # Directories to skip
-    skip_dirs = {'.git', '__pycache__', 'node_modules', '.venv', 'venv', 'env', '.env', 
+    skip_dirs = {'.git', '__pycache__', 'node_modules', '.venv', 'venv', 'env',
                  'dist', 'build', '.pytest_cache', '.mypy_cache', '.idea', '.vscode',
                  'target', 'bin', 'obj', '.vs', 'coverage', '.coverage'}
     
-    # Collect all supported files
+    # Collect all readable text/code files (any extension, minus binaries / skip path)
     project_files = []
     for root, dirs, files in os.walk(root_path):
-        # Filter out directories to skip
         dirs[:] = [d for d in dirs if d not in skip_dirs]
         
         for file in files:
             file_path = os.path.join(root, file)
-            _, ext = os.path.splitext(file)
-            
-            if ext.lower() in supported_extensions:
-                project_files.append(file_path)
+            relative_path = os.path.relpath(file_path, root_path)
+            if not should_index_file_by_path(relative_path.replace(os.sep, "/")):
+                continue
+            try:
+                with open(file_path, "rb") as bf:
+                    raw = bf.read(65536)
+            except OSError:
+                continue
+            if is_probably_binary_bytes(raw):
+                continue
+            project_files.append(file_path)
     
     if not project_files:
         return {
@@ -188,15 +187,14 @@ def scan_project(root_path: str) -> Dict[str, Any]:
             with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
                 code = f.read()
             
-            # Detect language by extension
-            detected_language = LanguageDetector.detect(filename=file_path, code=code)
-            lang_normalized = (detected_language or 'python').lower()
-            
-            # Parse file
-            result = _parse_code_auto(code, lang_normalized)
-            
-            # Get relative path
             relative_path = os.path.relpath(file_path, root_path)
+            detected_language = LanguageDetector.detect(filename=file_path, code=code)
+            if detected_language:
+                lang_normalized = detected_language.lower()
+            else:
+                lang_normalized = resolve_language_label(file_path, code)
+            
+            result = _parse_code_auto(code, lang_normalized, relative_path)
             
             # Calculate lines of code for this file
             lines_of_code = len(code.split('\n'))
