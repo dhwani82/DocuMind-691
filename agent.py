@@ -20,6 +20,13 @@ from langgraph.graph.state import CompiledStateGraph
 
 from code_graph import CodeGraphStore, has_graph
 from llm_factory import get_chat_model
+from tracing import (
+    RETRIEVAL_AGENT,
+    apply_tracing_config,
+    build_run_config,
+    configure_tracing,
+    wrap_tools_with_tracing,
+)
 from vector_index import VectorStore, is_indexed
 from vector_search import create_all_tools
 
@@ -57,6 +64,7 @@ class AgentRunResult:
     sources: list[str]
     tool_trace: list[dict[str, Any]]
     tokens: Optional[dict[str, int]]
+    contexts: list[str]
 
 
 def resolve_project_root(project_id: str) -> Path:
@@ -96,21 +104,35 @@ def build_agent(
     checkpointer: Optional[BaseCheckpointSaver] = None,
     vector_store: Optional[VectorStore] = None,
     graph_store: Optional[CodeGraphStore] = None,
+    tools: Optional[list[Any]] = None,
+    system_prompt: Optional[str] = None,
 ) -> CompiledStateGraph:
     """Build a LangGraph ReAct agent bound to a project."""
-    tools = create_all_tools(
-        str(project_root),
-        project_id,
-        vector_store=vector_store,
-        graph_store=graph_store,
+    if tools is None:
+        tools = create_all_tools(
+            str(project_root),
+            project_id,
+            vector_store=vector_store,
+            graph_store=graph_store,
+        )
+    tools = wrap_tools_with_tracing(
+        tools,
+        project_id=project_id,
+        endpoint="agent.tools",
     )
     model = llm or get_chat_model()
+    model = apply_tracing_config(
+        model,
+        project_id=project_id,
+        endpoint="agent.model",
+        retrieval_strategy=RETRIEVAL_AGENT,
+    )
     memory = checkpointer or MemorySaver()
 
     return create_agent(
         model,
         tools=tools,
-        system_prompt=AGENT_SYSTEM_PROMPT,
+        system_prompt=system_prompt or AGENT_SYSTEM_PROMPT,
         checkpointer=memory,
     )
 
@@ -131,12 +153,21 @@ def run_agent(
     *,
     thread_id: str = "default",
     recursion_limit: Optional[int] = None,
+    project_id: Optional[str] = None,
+    endpoint: str = "agent.run",
+    retrieval_strategy: str = RETRIEVAL_AGENT,
 ) -> AgentRunResult:
     """Invoke the agent and return a structured response."""
-    config = {
-        "configurable": {"thread_id": thread_id},
-        "recursion_limit": recursion_limit or DEFAULT_RECURSION_LIMIT,
-    }
+    configure_tracing()
+    limit = recursion_limit or DEFAULT_RECURSION_LIMIT
+    config = build_run_config(
+        thread_id=thread_id,
+        project_id=project_id,
+        endpoint=endpoint,
+        retrieval_strategy=retrieval_strategy,
+        recursion_limit=limit,
+        extra_metadata={"message_preview": message[:200]},
+    )
 
     try:
         state = agent.invoke(
@@ -149,6 +180,7 @@ def run_agent(
             sources=[],
             tool_trace=[],
             tokens=None,
+            contexts=[],
         )
 
     messages: Sequence[BaseMessage] = state.get("messages", [])
@@ -158,6 +190,7 @@ def run_agent(
         sources=_collect_sources(messages),
         tool_trace=_collect_tool_trace(messages),
         tokens=_collect_token_usage(messages),
+        contexts=_collect_contexts(messages),
     )
 
 
@@ -191,6 +224,17 @@ def _collect_tool_trace(messages: Sequence[BaseMessage]) -> list[dict[str, Any]]
                 }
             )
     return trace
+
+
+def _collect_contexts(messages: Sequence[BaseMessage]) -> list[str]:
+    contexts: list[str] = []
+    for msg in messages:
+        if not isinstance(msg, ToolMessage):
+            continue
+        content = msg.content
+        if isinstance(content, str) and content.strip():
+            contexts.append(content)
+    return contexts
 
 
 def _collect_sources(messages: Sequence[BaseMessage]) -> list[str]:

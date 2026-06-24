@@ -4,7 +4,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-import ast
+from tracing import configure_tracing
+
+configure_tracing()
 import json
 import os
 import tempfile
@@ -1079,7 +1081,13 @@ def agent_query():
             ), 409
 
         agent = get_agent(project_root, project_id)
-        result = run_agent(agent, message, thread_id=thread_id)
+        result = run_agent(
+            agent,
+            message,
+            thread_id=thread_id,
+            project_id=project_id,
+            endpoint="api/agent",
+        )
 
         return jsonify(
             {

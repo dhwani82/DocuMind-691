@@ -194,8 +194,16 @@ def _maybe_rerank(
             from llama_index.core.schema import NodeWithScore, TextNode
 
             from llm_factory import get_chat_model
+            from tracing import RETRIEVAL_VECTOR, apply_tracing_config
 
-            reranker = LLMRerank(top_n=top_k, llm=get_chat_model())
+            reranker = LLMRerank(
+                top_n=top_k,
+                llm=apply_tracing_config(
+                    get_chat_model(),
+                    endpoint="vector_search.rerank",
+                    retrieval_strategy=RETRIEVAL_VECTOR,
+                ),
+            )
             nodes = [
                 NodeWithScore(
                     node=TextNode(id_=hit["id"], text=hit["text"], metadata=hit.get("metadata", {})),

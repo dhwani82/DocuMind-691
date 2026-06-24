@@ -330,6 +330,7 @@ def test_agent_api_requires_indexed_project(tmp_path: Path, monkeypatch):
             sources=[],
             tool_trace=[],
             tokens=None,
+            contexts=[],
         ),
     )
 

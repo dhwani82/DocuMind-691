@@ -46,3 +46,9 @@ htmlcov/
 
 # Code knowledge graphs (NetworkX persistence)
 .graph_store/
+.chroma_eval/
+.graph_store_eval/
+
+# Evaluation reports (generated)
+eval/reports/*
+!eval/reports/.gitkeep

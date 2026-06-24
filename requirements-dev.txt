@@ -1,3 +1,6 @@
 -r requirements.txt
 pytest==9.0.3
 pytest-cov==7.1.0
+langsmith==0.9.1
+ragas==0.4.3
+datasets==5.0.0

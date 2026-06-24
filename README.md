@@ -69,6 +69,55 @@ pip install -r requirements.txt
    - **Production (e.g. Render):** add **`OPENAI_API_KEY`** in the service **Environment** settings (secret), not in the repository.
    - If **`OPENAI_API_KEY`** is unset, documentation generation still works using the **template-based** path (no LLM).
 
+6. **Evaluation dependencies (optional, for Phase E harness):**
+```bash
+pip install -r requirements-dev.txt
+```
+   Installs `pytest`, `langsmith`, `ragas`, and `datasets` in addition to the runtime requirements.
+
+### LangSmith tracing (optional)
+
+DocuMind can send traces to [LangSmith](https://smith.langchain.com/) for agent runs, LangChain LLM calls, and tool invocations. Tracing is **off by default** and does not affect behavior when disabled.
+
+1. Create a LangSmith account and API key.
+2. Add to `.env` (see `.env.example`):
+```bash
+LANGCHAIN_TRACING_V2=true
+LANGSMITH_API_KEY=lsv2_pt_...
+LANGCHAIN_PROJECT=documind
+```
+3. Restart the app or re-run your script.
+
+Traces are tagged with:
+- **`project_id`** — indexed codebase identifier
+- **`endpoint`** — e.g. `api/agent`, `agent.tools`, `vector_search.rerank`
+- **`retrieval_strategy`** — `agentic`, `vector`, `graph`, `generation`, or `agent` (full multi-tool agent)
+
+Filter in LangSmith by tags such as `retrieval:graph` or `endpoint:api/agent` to compare which retrieval path was used during evaluation.
+
+### Evaluation harness (Phase E)
+
+Compare retrieval strategies on a fixed golden set with RAGAS metrics:
+
+```bash
+pip install -r requirements-dev.txt
+python eval/run_eval.py
+```
+
+This runs **agentic-search-only**, **vector-RAG-only**, and **graph-assisted** modes against `eval/golden_set.jsonl`, prints a comparison table, and writes JSON/Markdown reports to `eval/reports/`.
+
+Useful flags:
+
+```bash
+# Quick smoke on first 3 questions
+python eval/run_eval.py --limit 3
+
+# CI-style gate on minimum RAGAS scores
+python eval/run_eval.py --threshold --min-faithfulness 0.5 --min-context-precision 0.3
+```
+
+Requires `OPENAI_API_KEY` (agent answers + RAGAS judge). Optional LangSmith tracing works as above with `LANGCHAIN_TRACING_V2=true`.
+
 ## Usage
 
 1. Make sure your virtual environment is activated (if using one).
