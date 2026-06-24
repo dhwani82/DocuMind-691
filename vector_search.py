@@ -359,3 +359,25 @@ def create_retrieval_tools(
         create_vector_search_tool(project_id, vector_store=vector_store),
         *create_graph_tools(project_id, graph_store=graph_store),
     ]
+
+
+def create_all_tools(
+    project_root: str,
+    project_id: str,
+    *,
+    vector_store: Optional[VectorStore] = None,
+    graph_store=None,
+    api_key: Optional[str] = None,
+) -> list[BaseTool]:
+    """Create retrieval and generation tools for a project-bound agent."""
+    from gen_tools import create_generation_tools
+
+    return [
+        *create_retrieval_tools(
+            project_root,
+            project_id,
+            vector_store=vector_store,
+            graph_store=graph_store,
+        ),
+        *create_generation_tools(api_key=api_key),
+    ]
