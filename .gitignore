@@ -40,3 +40,6 @@ get-pip.py
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Vector store (local Chroma persistence)
+.chroma/
