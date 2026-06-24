@@ -87,7 +87,21 @@ def test_vector_search_tool_is_registered(indexed_project: str, misleading_store
         project_id=indexed_project,
         vector_store=misleading_store,
     )
-    assert [tool.name for tool in tools][-1] == "vector_search"
+    tool_names = [tool.name for tool in tools]
+    assert "vector_search" in tool_names
+    assert tool_names[:5] == [
+        "grep_code",
+        "read_file",
+        "list_files",
+        "find_symbol",
+        "get_structure",
+    ]
+    assert tool_names[-4:] == [
+        "who_calls",
+        "what_calls",
+        "impact_of",
+        "dependencies_of",
+    ]
 
 
 def test_metadata_filters_language(indexed_project: str, misleading_store: ChromaVectorStore):

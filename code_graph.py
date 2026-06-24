@@ -279,11 +279,13 @@ class CodeGraphBuilder:
 
         for call in parsed.get("method_calls", []):
             caller = call.get("caller") or call.get("caller_class")
-            callee = call.get("method") or call.get("callee")
-            if not caller or not callee:
+            method = call.get("method") or call.get("callee")
+            class_name = call.get("class_name")
+            if not caller or not method:
                 continue
+            callee = f"{class_name}.{method}" if class_name else str(method)
             caller_id = function_node_id(file_path, str(caller))
-            callee_id = function_node_id(file_path, str(callee))
+            callee_id = function_node_id(file_path, callee)
             self._ensure_node(
                 caller_id,
                 kind=NODE_FUNCTION,

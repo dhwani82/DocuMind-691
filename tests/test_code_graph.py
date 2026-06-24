@@ -111,6 +111,29 @@ def test_graph_contains_inherits_edges(sample_project: Path, graph_store: Networ
     )
 
 
+def test_graph_contains_method_call_edge(sample_project: Path, graph_store: NetworkXGraphStore):
+    service_code = '''
+class Service:
+    def run(self):
+        return self.process()
+
+    def process(self):
+        return 1
+'''
+    service_path = sample_project / "service.py"
+    service_path.write_text(service_code.strip() + "\n", encoding="utf-8")
+    build_graph("sample-project", [str(service_path)], graph_store=graph_store)
+    graph = load_graph("sample-project", graph_store=graph_store)
+    assert graph is not None
+
+    calls = graph_edges(graph, relation=EDGE_CALLS)
+    assert any(
+        edge["source"].endswith(":Service.run")
+        and edge["target"].endswith(":Service.process")
+        for edge in calls
+    )
+
+
 def test_graph_json_roundtrip_has_edge_metadata(graph_store: NetworkXGraphStore):
     graph = nx.DiGraph()
     graph.add_node("file:a.py", kind="file", name="a.py", file_path="a.py")

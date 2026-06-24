@@ -348,11 +348,14 @@ def create_retrieval_tools(
     project_id: str,
     *,
     vector_store: Optional[VectorStore] = None,
+    graph_store=None,
 ) -> list[BaseTool]:
-    """Create code-navigation and vector-search tools together."""
+    """Create code-navigation, vector-search, and graph-query tools together."""
     from code_tools import create_code_tools
+    from graph_tools import create_graph_tools
 
     return [
         *create_code_tools(project_root),
         create_vector_search_tool(project_id, vector_store=vector_store),
+        *create_graph_tools(project_id, graph_store=graph_store),
     ]
