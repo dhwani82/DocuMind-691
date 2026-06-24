@@ -12,9 +12,9 @@ from langchain_core.tools import BaseTool, StructuredTool
 from code_graph import (
     EDGE_CALLS,
     EDGE_IMPORTS,
-    EDGE_INHERITS,
     CodeGraphStore,
     NetworkXGraphStore,
+    file_node_id,
     load_graph,
 )
 
@@ -53,7 +53,47 @@ def _resolve_symbol_nodes(graph: nx.DiGraph, symbol: str) -> list[str]:
     if qualified:
         return sorted(qualified)
 
+    # module.method style, e.g. language_detector.detect -> LanguageDetector.detect
+    if "." in symbol:
+        module_part, remainder = symbol.split(".", 1)
+        module_matches: list[str] = []
+        for node_id, data in graph.nodes(data=True):
+            file_path = str(data.get("file_path", ""))
+            if not file_path.endswith(f"{module_part}.py"):
+                continue
+            name = str(data.get("name", ""))
+            if name == remainder or name.endswith(f".{remainder}"):
+                module_matches.append(node_id)
+        if module_matches:
+            return sorted(module_matches)
+
     return sorted(set(matches))
+
+
+def _resolve_file_node(graph: nx.DiGraph, file_path: str) -> Optional[str]:
+    normalized = file_path.strip().replace("\\", "/")
+    if not normalized:
+        return None
+
+    candidates: list[str] = []
+    for node_id, data in graph.nodes(data=True):
+        if data.get("kind") != "file":
+            continue
+        name = str(data.get("name", "")).replace("\\", "/")
+        if name == normalized or name.endswith(f"/{normalized}"):
+            candidates.append(node_id)
+
+    if not candidates:
+        return None
+
+    exact = [node_id for node_id in candidates if graph.nodes[node_id].get("name") == normalized]
+    if exact:
+        return exact[0]
+
+    if len(candidates) == 1:
+        return candidates[0]
+
+    return sorted(candidates, key=lambda node_id: len(str(graph.nodes[node_id].get("name", ""))))[0]
 
 
 def _node_summary(graph: nx.DiGraph, node_id: str) -> dict[str, Any]:
@@ -171,39 +211,35 @@ def impact_of(
 
 def dependencies_of(
     project_id: str,
-    symbol: str,
+    file_path: str,
     *,
     graph_store: Optional[CodeGraphStore] = None,
 ) -> list[dict[str, Any]]:
-    """Return transitive callees plus structural import/inheritance dependencies."""
+    """Return import/module dependencies for a file."""
     graph = load_graph(project_id, graph_store=graph_store)
     if graph is None:
         return []
 
-    sources = _resolve_symbol_nodes(graph, symbol)
-    if not sources:
-        return []
+    file_id = _resolve_file_node(graph, file_path)
+    if file_id is None:
+        file_id = file_node_id(file_path.strip().replace("\\", "/"))
+        if file_id not in graph:
+            return []
 
-    dependency_edges = {
-        EDGE_CALLS,
-        EDGE_IMPORTS,
-        EDGE_INHERITS,
-    }
-    dep_graph = nx.DiGraph()
-    dep_graph.add_nodes_from(graph.nodes(data=True))
-    for source, target, data in graph.edges(data=True):
-        if data.get("relation") in dependency_edges:
-            dep_graph.add_edge(source, target, **data)
+    results: list[dict[str, Any]] = []
+    for _, target, data in graph.out_edges(file_id, data=True):
+        if data.get("relation") != EDGE_IMPORTS:
+            continue
+        results.append(
+            {
+                "file": _node_summary(graph, file_id),
+                "module": _node_summary(graph, target),
+                "relation": EDGE_IMPORTS,
+                "line": data.get("line"),
+            }
+        )
 
-    dependencies: set[str] = set()
-    for source in sources:
-        if source in dep_graph:
-            dependencies |= nx.descendants(dep_graph, source)
-
-    return sorted(
-        (_node_summary(graph, node_id) for node_id in dependencies),
-        key=lambda item: item["id"],
-    )
+    return sorted(results, key=lambda item: item["module"]["id"])
 
 
 @dataclass
@@ -231,9 +267,9 @@ class GraphQueryTools:
             indent=2,
         )
 
-    def dependencies_of(self, symbol: str) -> str:
+    def dependencies_of(self, file_path: str) -> str:
         return json.dumps(
-            dependencies_of(self.project_id, symbol, graph_store=self.graph_store),
+            dependencies_of(self.project_id, file_path, graph_store=self.graph_store),
             indent=2,
         )
 
@@ -268,7 +304,7 @@ def create_graph_tools(
             func=tools.dependencies_of,
             name="dependencies_of",
             description=(
-                "Return transitive dependencies: callees, imports, and inherited bases."
+                "Return the import/module dependency graph for a project file."
             ),
         ),
     ]

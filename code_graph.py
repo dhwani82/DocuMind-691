@@ -120,6 +120,8 @@ class CodeGraphBuilder:
 
     def __init__(self) -> None:
         self.graph = nx.DiGraph()
+        self._module_paths: dict[str, str] = {}
+        self._definitions: dict[str, dict[str, str]] = {}
 
     def _ensure_node(
         self,
@@ -157,7 +159,15 @@ class CodeGraphBuilder:
             attrs["file_path"] = file_path
         self.graph.add_edge(source, target, **attrs)
 
-    def add_file(self, file_path: str, parsed: dict[str, Any]) -> None:
+    def _register_module(self, file_path: str) -> None:
+        self._module_paths[Path(file_path).stem] = file_path
+
+    def _register_definition(self, file_path: str, name: str, node_id: str) -> None:
+        self._definitions.setdefault(file_path, {})[name] = node_id
+
+    def add_structure(self, file_path: str, parsed: dict[str, Any]) -> None:
+        """Add file nodes, imports, and symbol definitions."""
+        self._register_module(file_path)
         file_id = file_node_id(file_path)
         self._ensure_node(file_id, kind=NODE_FILE, name=file_path, file_path=file_path)
 
@@ -196,6 +206,7 @@ class CodeGraphBuilder:
                 line=func.get("line"),
                 file_path=file_path,
             )
+            self._register_definition(file_path, func_name, func_id)
 
         for cls in parsed.get("classes", []):
             cls_name = cls.get("name", "")
@@ -216,6 +227,7 @@ class CodeGraphBuilder:
                 line=cls.get("line"),
                 file_path=file_path,
             )
+            self._register_definition(file_path, cls_name, cls_id)
 
             for base in cls.get("bases", []) or []:
                 if not base:
@@ -255,7 +267,10 @@ class CodeGraphBuilder:
                     line=method.get("line"),
                     file_path=file_path,
                 )
+                self._register_definition(file_path, qualified, method_id)
 
+    def add_calls(self, file_path: str, parsed: dict[str, Any]) -> None:
+        """Add call edges after all project symbols are registered."""
         for call in parsed.get("function_calls", []):
             caller = call.get("caller")
             callee = call.get("callee")
@@ -300,6 +315,57 @@ class CodeGraphBuilder:
                 file_path=file_path,
             )
 
+    def add_file(self, file_path: str, parsed: dict[str, Any]) -> None:
+        """Add structure and call edges for one parsed file."""
+        self.add_structure(file_path, parsed)
+        self.add_calls(file_path, parsed)
+
+    def _import_aliases(self, parsed: dict[str, Any]) -> dict[str, tuple[str, Optional[str]]]:
+        aliases: dict[str, tuple[str, Optional[str]]] = {}
+        for import_info in parsed.get("imports", []):
+            if import_info.get("type") == "from_import":
+                module = str(import_info.get("module") or "")
+                name = import_info.get("name")
+                alias = import_info.get("alias") or name
+                if module and name and alias:
+                    aliases[str(alias)] = (module, str(name))
+                continue
+
+            module = str(import_info.get("module") or "")
+            alias = import_info.get("alias") or module.split(".")[-1]
+            if module and alias:
+                aliases[str(alias)] = (module, None)
+        return aliases
+
+    def _lookup_in_module(self, module: str, name: str) -> Optional[str]:
+        target_file = self._module_paths.get(module)
+        if not target_file:
+            return None
+        return self._definitions.get(target_file, {}).get(name)
+
+    def _resolve_imported_callee(
+        self,
+        callee: str,
+        parsed: dict[str, Any],
+    ) -> Optional[str]:
+        aliases = self._import_aliases(parsed)
+        if "." not in callee:
+            if callee not in aliases:
+                return None
+            module, imported_name = aliases[callee]
+            return self._lookup_in_module(module, imported_name or callee)
+
+        head, remainder = callee.split(".", 1)
+        if head not in aliases:
+            return None
+        module, imported_name = aliases[head]
+        base = imported_name or head
+        qualified = f"{base}.{remainder}"
+        return self._lookup_in_module(module, qualified) or self._lookup_in_module(
+            module,
+            remainder,
+        )
+
     def _import_target(self, import_info: dict[str, Any]) -> str:
         if import_info.get("type") == "from_import":
             module = import_info.get("module") or ""
@@ -315,26 +381,27 @@ class CodeGraphBuilder:
         callee: str,
         parsed: dict[str, Any],
     ) -> str:
-        if "." in callee:
-            head = callee.split(".", 1)[0]
-            for cls in parsed.get("classes", []):
-                if cls.get("name") == head:
-                    return class_node_id(file_path, head)
-            for func in parsed.get("functions", []):
-                if func.get("name") == head:
-                    return function_node_id(file_path, head)
+        local = self._definitions.get(file_path, {}).get(callee)
+        if local:
+            return local
 
         for func in parsed.get("functions", []):
             if func.get("name") == callee:
                 return function_node_id(file_path, callee)
 
         for cls in parsed.get("classes", []):
-            if cls.get("name") == callee:
-                return class_node_id(file_path, callee)
             for method in cls.get("methods", []):
                 qualified = f"{cls.get('name')}.{method.get('name')}"
                 if qualified == callee or method.get("name") == callee:
                     return function_node_id(file_path, qualified)
+
+        for cls in parsed.get("classes", []):
+            if cls.get("name") == callee:
+                return class_node_id(file_path, callee)
+
+        imported = self._resolve_imported_callee(callee, parsed)
+        if imported:
+            return imported
 
         return function_node_id(file_path, callee)
 
@@ -348,6 +415,7 @@ def build_graph(
     """Parse project files and persist a directed code graph."""
     store = graph_store or NetworkXGraphStore()
     builder = CodeGraphBuilder()
+    parsed_entries: list[tuple[str, dict[str, Any]]] = []
 
     for file_path in files:
         path = Path(file_path)
@@ -360,8 +428,13 @@ def build_graph(
         if not language or language.lower() not in PARSEABLE_LANGUAGES:
             continue
 
-        parsed = _parse_code(code, language.lower())
-        builder.add_file(rel_path, parsed)
+        parsed_entries.append((rel_path, _parse_code(code, language.lower())))
+
+    for rel_path, parsed in parsed_entries:
+        builder.add_structure(rel_path, parsed)
+
+    for rel_path, parsed in parsed_entries:
+        builder.add_calls(rel_path, parsed)
 
     store.save_graph(project_id, builder.graph)
     return {

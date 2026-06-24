@@ -14,7 +14,7 @@ Documented constraints for evaluation golden sets and agent prompt design.
 
 - **What works:** transitive **caller** chains over `calls` edges (who is affected if this symbol changes).
 - **Limitation:** does not include import or inheritance edges in impact propagation.
-- **Use instead:** `dependencies_of` for transitive callees, imports, and inherited bases.
+- **Use instead:** `dependencies_of(file_path)` for a file's import/module graph.
 
 ## Vector retrieval (`vector_search.py`)
 

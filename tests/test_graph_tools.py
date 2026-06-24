@@ -12,6 +12,7 @@ from graph_tools import (
     what_calls,
     who_calls,
 )
+from tests.sample_code_for_testing import SAMPLE_MIXED
 
 CALL_CHAIN = '''
 def leaf():
@@ -55,6 +56,14 @@ def method_project(tmp_path: Path) -> Path:
     return project
 
 
+@pytest.fixture
+def sample_project(tmp_path: Path) -> Path:
+    project = tmp_path / "sample_project"
+    project.mkdir()
+    (project / "mixed.py").write_text(SAMPLE_MIXED.strip() + "\n", encoding="utf-8")
+    return project
+
+
 def test_who_calls_direct_only(call_chain_project: Path, graph_store: NetworkXGraphStore):
     build_graph("chain", [str(call_chain_project / "chain.py")], graph_store=graph_store)
 
@@ -82,13 +91,17 @@ def test_impact_of_is_transitive(call_chain_project: Path, graph_store: NetworkX
     assert impacted_names == {"middle", "top"}
 
 
-def test_dependencies_of_is_transitive(call_chain_project: Path, graph_store: NetworkXGraphStore):
-    build_graph("chain", [str(call_chain_project / "chain.py")], graph_store=graph_store)
+def test_dependencies_of_returns_file_imports(
+    sample_project: Path,
+    graph_store: NetworkXGraphStore,
+):
+    build_graph("sample-project", [str(sample_project / "mixed.py")], graph_store=graph_store)
 
-    deps = dependencies_of("chain", "top", graph_store=graph_store)
-    dep_names = {item["name"] for item in deps}
+    deps = dependencies_of("sample-project", "mixed.py", graph_store=graph_store)
+    module_names = {item["module"]["name"] for item in deps}
 
-    assert dep_names == {"middle", "leaf"}
+    assert "os" in module_names
+    assert "pathlib.Path" in module_names
 
 
 def test_method_call_edge_resolves_qualified_name(
@@ -111,3 +124,34 @@ def test_create_graph_tools_exposes_four_tools(graph_store: NetworkXGraphStore):
         "impact_of",
         "dependencies_of",
     ]
+
+
+DOCUMIND_GRAPH_FILES = (
+    "language_detector.py",
+    "code_graph.py",
+    "chunking.py",
+    "code_tools.py",
+    "project_scanner.py",
+)
+
+
+@pytest.fixture
+def documind_project_root() -> Path:
+    return Path(__file__).resolve().parents[1]
+
+
+def test_impact_of_language_detector_detect(documind_project_root: Path, graph_store: NetworkXGraphStore):
+    files = [str(documind_project_root / name) for name in DOCUMIND_GRAPH_FILES]
+    build_graph("documind", files, graph_store=graph_store)
+
+    impacted = impact_of("documind", "language_detector.detect", graph_store=graph_store)
+    impacted_names = {item["name"] for item in impacted}
+
+    assert {
+        "build_graph",
+        "_detect_language",
+        "chunk_source",
+        "scan_project",
+        "CodeNavigator._symbol_definitions_in_file",
+        "CodeNavigator.get_structure",
+    }.issubset(impacted_names)

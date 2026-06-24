@@ -134,6 +134,24 @@ class Service:
     )
 
 
+def test_graph_resolves_cross_file_calls(graph_store: NetworkXGraphStore):
+    root = Path(__file__).resolve().parents[1]
+    files = [
+        str(root / "language_detector.py"),
+        str(root / "code_graph.py"),
+    ]
+    build_graph("cross-file", files, graph_store=graph_store)
+    graph = load_graph("cross-file", graph_store=graph_store)
+    assert graph is not None
+
+    calls = graph_edges(graph, relation=EDGE_CALLS)
+    assert any(
+        edge["source"].endswith(":build_graph")
+        and edge["target"].endswith(":LanguageDetector.detect")
+        for edge in calls
+    )
+
+
 def test_graph_json_roundtrip_has_edge_metadata(graph_store: NetworkXGraphStore):
     graph = nx.DiGraph()
     graph.add_node("file:a.py", kind="file", name="a.py", file_path="a.py")
