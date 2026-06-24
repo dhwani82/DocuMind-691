@@ -25,7 +25,7 @@ from eval.ragas_compat import patch_ragas_imports
 
 patch_ragas_imports()
 
-from code_graph import NetworkXGraphStore, build_graph, has_graph
+from code_graph import NetworkXGraphStore, build_graph
 from code_tools import create_code_tools
 from graph_tools import create_graph_tools
 from tracing import RETRIEVAL_AGENTIC, RETRIEVAL_GRAPH, RETRIEVAL_VECTOR, configure_tracing
@@ -33,6 +33,10 @@ from tracing import RETRIEVAL_AGENTIC, RETRIEVAL_GRAPH, RETRIEVAL_VECTOR, config
 DEFAULT_PROJECT_ID = "eval-sample"
 DEFAULT_GOLDEN_SET = Path(__file__).resolve().parent / "golden_set.jsonl"
 DEFAULT_REPORTS_DIR = Path(__file__).resolve().parent / "reports"
+
+# Pinned RAGAS judge models (separate from the agent answer model).
+DEFAULT_RAGAS_JUDGE_MODEL = "gpt-4o-mini"
+DEFAULT_RAGAS_JUDGE_EMBEDDING_MODEL = "text-embedding-3-small"
 
 MODE_AGENTIC = "agentic"
 MODE_VECTOR = "vector"
@@ -116,17 +120,15 @@ def ensure_eval_project(
     graph_store: NetworkXGraphStore,
 ) -> list[str]:
     from chunking import chunk_file
-    from vector_index import ingest_project, is_indexed
+    from vector_index import ingest_project
 
     from eval.sample_project import ensure_sample_project
 
     ensure_sample_project(project_root)
     files = sorted(str(path) for path in project_root.glob("*.py"))
 
-    if not is_indexed(project_id, vector_store=vector_store):
-        ingest_project(project_id, files, vector_store=vector_store, chunker=chunk_file)
-    if not has_graph(project_id, graph_store=graph_store):
-        build_graph(project_id, files, graph_store=graph_store)
+    ingest_project(project_id, files, vector_store=vector_store, chunker=chunk_file)
+    build_graph(project_id, files, graph_store=graph_store)
 
     return files
 
@@ -230,15 +232,22 @@ def ragas_metrics_for_runs(
     if not items:
         return {}
 
-    model_name = os.getenv("LLM_MODEL", "gpt-4o-mini")
-    embedding_model = os.getenv("EMBEDDING_MODEL", "text-embedding-3-small")
+    judge_model = os.getenv("RAGAS_JUDGE_MODEL", DEFAULT_RAGAS_JUDGE_MODEL)
+    judge_embedding_model = os.getenv(
+        "RAGAS_JUDGE_EMBEDDING_MODEL",
+        DEFAULT_RAGAS_JUDGE_EMBEDDING_MODEL,
+    )
     api_key = os.getenv("OPENAI_API_KEY")
     if not api_key:
         raise ValueError("OPENAI_API_KEY is required for RAGAS evaluation.")
 
     client = AsyncOpenAI(api_key=api_key)
-    ragas_llm = llm_factory(model_name, client=client)
-    ragas_embeddings = embedding_factory("openai", model=embedding_model, client=client)
+    ragas_llm = llm_factory(judge_model, client=client)
+    ragas_embeddings = embedding_factory(
+        "openai",
+        model=judge_embedding_model,
+        client=client,
+    )
 
     faithfulness_metric = Faithfulness(llm=ragas_llm)
     answer_relevancy_metric = AnswerRelevancy(llm=ragas_llm, embeddings=ragas_embeddings)
@@ -470,6 +479,14 @@ def main() -> int:
     if not items:
         print("ERROR: golden set is empty.", file=sys.stderr)
         return 2
+
+    judge_model = os.getenv("RAGAS_JUDGE_MODEL", DEFAULT_RAGAS_JUDGE_MODEL)
+    agent_model = os.getenv("LLM_MODEL", "gpt-4o-mini")
+    print(
+        f"Evaluating {len(items)} questions × {len(args.modes)} modes "
+        f"(agent={agent_model}, ragas_judge={judge_model})",
+        flush=True,
+    )
 
     mode_results: dict[str, dict[str, Any]] = {}
     for mode in args.modes:

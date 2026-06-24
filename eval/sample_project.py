@@ -17,12 +17,21 @@ def main():
     return helper()
 '''
 
+SAMPLE_INSTANCE_USAGE = '''
+from calculator import Calculator
+
+def use_via_instance():
+    calc = Calculator()
+    return calc.add(1, 2)
+'''
+
 SAMPLE_FILES = {
     "mixed.py": SAMPLE_MIXED,
     "inheritance.py": SAMPLE_INHERITANCE,
     "calls.py": SAMPLE_CALLS,
     "simple.py": SAMPLE_SIMPLE_FUNCTIONS,
     "calculator.py": SAMPLE_CLASS,
+    "instance_usage.py": SAMPLE_INSTANCE_USAGE,
 }
 
 

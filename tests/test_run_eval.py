@@ -23,8 +23,14 @@ from code_graph import NetworkXGraphStore
 
 def test_load_golden_set_has_expected_entries():
     items = load_golden_set(DEFAULT_GOLDEN_SET)
-    assert 20 <= len(items) <= 30
-    assert {item.category for item in items} >= {"retrieval", "structural", "documentation", "refusal"}
+    assert 20 <= len(items) <= 32
+    assert {item.category for item in items} >= {
+        "retrieval",
+        "structural",
+        "documentation",
+        "refusal",
+        "limitation",
+    }
 
 
 def test_load_golden_set_respects_limit():
