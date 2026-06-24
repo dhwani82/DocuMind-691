@@ -43,3 +43,6 @@ htmlcov/
 
 # Vector store (local Chroma persistence)
 .chroma/
+
+# Code knowledge graphs (NetworkX persistence)
+.graph_store/
