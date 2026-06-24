@@ -177,40 +177,63 @@ def _symbol_for_chunk(
     start_line: int,
     end_line: int,
     chunk_text: str = "",
-) -> str:
-    candidates: list[tuple[int, str]] = []
+) -> tuple[str, str]:
+    candidates: list[tuple[int, str, str]] = []
 
     for func in parsed.get("functions", []):
         func_line = func.get("line", 0)
         if func_line and start_line <= func_line <= end_line:
-            candidates.append((func_line, func.get("name", "")))
+            candidates.append((func_line, func.get("name", ""), "function"))
 
     for cls in parsed.get("classes", []):
         cls_line = cls.get("line", 0)
         if cls_line and start_line <= cls_line <= end_line:
-            candidates.append((cls_line, cls.get("name", "")))
+            candidates.append((cls_line, cls.get("name", ""), "class"))
 
         for method in cls.get("methods", []):
             method_line = method.get("line", 0)
             if method_line and start_line <= method_line <= end_line:
-                candidates.append((method_line, f"{cls.get('name')}.{method.get('name')}"))
+                candidates.append(
+                    (
+                        method_line,
+                        f"{cls.get('name')}.{method.get('name')}",
+                        "method",
+                    )
+                )
 
     for table in parsed.get("tables", []):
         table_line = table.get("line", 0)
         if table_line and start_line <= table_line <= end_line:
-            candidates.append((table_line, table.get("name", "")))
+            candidates.append((table_line, table.get("name", ""), "table"))
 
     if candidates:
         declared = [
-            (line, name) for line, name in candidates if _symbol_declared_in_chunk(name, chunk_text)
+            (line, name, kind)
+            for line, name, kind in candidates
+            if _symbol_declared_in_chunk(name, chunk_text)
         ]
         if declared:
             declared.sort()
-            return declared[0][1]
+            return declared[0][1], declared[0][2]
         candidates.sort()
-        return candidates[0][1]
+        return candidates[0][1], candidates[0][2]
 
-    return _symbol_enclosing_line(parsed, start_line)
+    enclosing = _symbol_enclosing_line(parsed, start_line)
+    return enclosing, _kind_for_symbol_name(parsed, enclosing)
+
+
+def _kind_for_symbol_name(parsed: dict[str, Any], name: str) -> str:
+    if not name:
+        return ""
+    if "." in name:
+        return "method"
+    for cls in parsed.get("classes", []):
+        if cls.get("name") == name:
+            return "class"
+    for table in parsed.get("tables", []):
+        if table.get("name") == name:
+            return "table"
+    return "function"
 
 
 def _symbol_enclosing_line(parsed: dict[str, Any], line: int) -> str:
@@ -254,7 +277,7 @@ def _build_chunk_metadata(
     chunker: str,
     chunk_text: str,
 ) -> dict[str, Any]:
-    symbol_name = _symbol_for_chunk(parsed, start_line, end_line, chunk_text)
+    symbol_name, symbol_kind = _symbol_for_chunk(parsed, start_line, end_line, chunk_text)
     metadata = {
         "file_path": file_path,
         "language": language,
@@ -264,6 +287,8 @@ def _build_chunk_metadata(
     }
     if symbol_name:
         metadata["symbol_name"] = symbol_name
+    if symbol_kind:
+        metadata["symbol_kind"] = symbol_kind
     return metadata
 
 

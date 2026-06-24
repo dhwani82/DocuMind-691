@@ -45,8 +45,14 @@ class VectorStore(ABC):
         project_id: str,
         query: str,
         top_k: int = 5,
+        *,
+        where: Optional[dict[str, Any]] = None,
     ) -> list[dict[str, Any]]:
         """Return the most similar chunks for a query string."""
+
+    @abstractmethod
+    def fetch_chunks(self, project_id: str) -> list[dict[str, Any]]:
+        """Return all indexed chunks for a project."""
 
     @abstractmethod
     def is_indexed(self, project_id: str) -> bool:
@@ -105,6 +111,8 @@ class ChromaVectorStore(VectorStore):
         project_id: str,
         query: str,
         top_k: int = 5,
+        *,
+        where: Optional[dict[str, Any]] = None,
     ) -> list[dict[str, Any]]:
         if not self.is_indexed(project_id):
             return []
@@ -114,22 +122,49 @@ class ChromaVectorStore(VectorStore):
             query_embeddings=[self._embed_query(query)],
             n_results=top_k,
             include=["documents", "metadatas", "distances"],
+            where=where,
         )
 
         hits: list[dict[str, Any]] = []
         documents = result.get("documents", [[]])[0]
         metadatas = result.get("metadatas", [[]])[0]
         distances = result.get("distances", [[]])[0]
+        ids = result.get("ids", [[]])[0]
 
-        for document, metadata, distance in zip(documents, metadatas, distances):
+        for chunk_id, document, metadata, distance in zip(ids, documents, metadatas, distances):
             hits.append(
                 {
+                    "id": chunk_id,
                     "text": document,
                     "metadata": metadata or {},
                     "distance": distance,
+                    "score": 1.0 / (1.0 + float(distance)),
                 }
             )
         return hits
+
+    def fetch_chunks(self, project_id: str) -> list[dict[str, Any]]:
+        """Return all indexed chunks for a project."""
+        if not self.is_indexed(project_id):
+            return []
+
+        collection = self._get_collection(project_id, create=False)
+        result = collection.get(include=["documents", "metadatas"])
+
+        chunks: list[dict[str, Any]] = []
+        for chunk_id, document, metadata in zip(
+            result.get("ids", []),
+            result.get("documents", []),
+            result.get("metadatas", []),
+        ):
+            chunks.append(
+                {
+                    "id": chunk_id,
+                    "text": document,
+                    "metadata": metadata or {},
+                }
+            )
+        return chunks
 
     def is_indexed(self, project_id: str) -> bool:
         name = _collection_name(project_id)
