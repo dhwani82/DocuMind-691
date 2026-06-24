@@ -32,6 +32,10 @@ get-pip.py
 .env
 .env.local
 
+# AI assistant / local tooling
+.cursor/
+.specstory/
+
 # Tests / coverage
 .pytest_cache/
 .coverage
