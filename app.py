@@ -1043,6 +1043,60 @@ def generate_svg_flowchart():
         print(f"Error generating SVG flowchart: {error_details}")
         return jsonify({'error': f'Error generating SVG flowchart: {str(e)}'}), 500
 
+
+@app.route('/api/agent', methods=['POST'])
+def agent_query():
+    """Run the DocuMind LangGraph agent against an indexed project."""
+    try:
+        if not request.is_json:
+            return jsonify({'error': 'Request must be JSON'}), 400
+
+        data = request.json or {}
+        project_id = str(data.get('project_id', '')).strip()
+        message = str(data.get('message', '')).strip()
+        thread_id = str(data.get('thread_id', 'default')).strip() or 'default'
+
+        if not project_id:
+            return jsonify({'error': 'project_id is required'}), 400
+        if not message:
+            return jsonify({'error': 'message is required'}), 400
+
+        from agent import get_agent, is_project_ready, resolve_project_root, run_agent
+
+        try:
+            project_root = resolve_project_root(project_id)
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 404
+
+        if not is_project_ready(project_id):
+            return jsonify(
+                {
+                    'error': (
+                        f"Project '{project_id}' is not ready for the agent. "
+                        "Ingest the project into the vector index and build the code graph first."
+                    )
+                }
+            ), 409
+
+        agent = get_agent(project_root, project_id)
+        result = run_agent(agent, message, thread_id=thread_id)
+
+        return jsonify(
+            {
+                'answer': result.answer,
+                'sources': result.sources,
+                'tool_trace': result.tool_trace,
+                'tokens': result.tokens,
+            }
+        )
+    except Exception as e:
+        import traceback
+
+        error_details = traceback.format_exc()
+        print(f"Error running agent: {error_details}")
+        return jsonify({'error': f'Error running agent: {str(e)}'}), 500
+
+
 if __name__ == '__main__':
     # Honor PORT (e.g. Render, Docker); default 5001 avoids macOS AirPlay on 5000.
     port = int(os.environ.get("PORT", "5001"))
