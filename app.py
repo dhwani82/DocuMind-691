@@ -4,7 +4,9 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-import ast
+from tracing import configure_tracing
+
+configure_tracing()
 import json
 import os
 import tempfile
@@ -18,6 +20,7 @@ from diagram_generator import DiagramGenerator
 from svg_generator import SVGFlowchartGenerator
 from language_detector import LanguageDetector, NORMALIZED_LANGUAGES
 from javascript_parser import JavaScriptParser
+from java_parser import JavaParser
 from sql_parser import SQLParser
 from universal_parser import UniversalParser, resolve_language_label, should_index_file_by_path, is_probably_binary_bytes
 from project_scanner import scan_project
@@ -340,10 +343,16 @@ def parse_code_auto(code: str, language: str, filename: Optional[str] = None) ->
         return result
     elif lang_normalized == "javascript":
         parser = JavaScriptParser()
-        return parser.parse(code)
+        result = parser.parse(code)
+        return result
+    elif lang_normalized == "java":
+        parser = JavaParser()
+        result = parser.parse(code)
+        return result
     elif lang_normalized == "sql":
         parser = SQLParser()
-        return parser.parse(code)
+        result = parser.parse(code)
+        return result
     u = UniversalParser()
     try:
         raw = u.parse(code or "", filename or "snippet")
@@ -1235,6 +1244,94 @@ def generate_svg_flowchart():
         error_details = traceback.format_exc()
         print(f"Error generating SVG flowchart: {error_details}")
         return jsonify({'error': f'Error generating SVG flowchart: {str(e)}'}), 500
+
+
+@app.route('/api/index-project', methods=['POST'])
+def index_project_route():
+    """Ingest a folder into the vector index and build its code graph."""
+    try:
+        if not request.is_json:
+            return jsonify({'error': 'Request must be JSON'}), 400
+
+        data = request.json or {}
+        folder_path = str(data.get('folder_path') or data.get('path') or '').strip()
+        if not folder_path:
+            return jsonify({'error': 'folder_path is required'}), 400
+
+        from project_indexing import index_project_folder
+
+        result = index_project_folder(folder_path)
+        return jsonify(result.to_dict())
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except Exception as e:
+        import traceback
+
+        error_details = traceback.format_exc()
+        print(f"Error indexing project: {error_details}")
+        return jsonify({'error': f'Error indexing project: {str(e)}'}), 500
+
+
+@app.route('/api/agent', methods=['POST'])
+def agent_query():
+    """Run the DocuMind LangGraph agent against an indexed project."""
+    try:
+        if not request.is_json:
+            return jsonify({'error': 'Request must be JSON'}), 400
+
+        data = request.json or {}
+        project_id = str(data.get('project_id', '')).strip()
+        message = str(data.get('message', '')).strip()
+        thread_id = str(data.get('thread_id', 'default')).strip() or 'default'
+
+        if not project_id:
+            return jsonify({'error': 'project_id is required'}), 400
+        if not message:
+            return jsonify({'error': 'message is required'}), 400
+
+        from agent import get_agent, is_project_ready, resolve_project_root, run_agent
+        from project_indexing import canonical_project_id
+
+        try:
+            project_root = resolve_project_root(project_id)
+            project_id = canonical_project_id(str(project_root))
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 404
+
+        if not is_project_ready(project_id):
+            return jsonify(
+                {
+                    'error': (
+                        f"Project '{project_id}' is not ready for the agent. "
+                        "Ingest the project into the vector index and build the code graph first."
+                    )
+                }
+            ), 409
+
+        agent = get_agent(project_root, project_id)
+        result = run_agent(
+            agent,
+            message,
+            thread_id=thread_id,
+            project_id=project_id,
+            endpoint="api/agent",
+        )
+
+        return jsonify(
+            {
+                'answer': result.answer,
+                'sources': result.sources,
+                'tool_trace': result.tool_trace,
+                'tokens': result.tokens,
+            }
+        )
+    except Exception as e:
+        import traceback
+
+        error_details = traceback.format_exc()
+        print(f"Error running agent: {error_details}")
+        return jsonify({'error': f'Error running agent: {str(e)}'}), 500
+
 
 if __name__ == '__main__':
     # Honor PORT (e.g. Render, Docker); default 5001 avoids macOS AirPlay on 5000.

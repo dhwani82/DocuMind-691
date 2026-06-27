@@ -12,7 +12,7 @@ from typing import Optional, Dict, List, Tuple
 from universal_parser import EXT_TO_LANG
 
 # Subset: allowed manual overrides in /api/parse (dropdown + validation)
-NORMALIZED_LANGUAGES = ('python', 'javascript', 'cpp', 'c', 'sql')
+NORMALIZED_LANGUAGES = ('python', 'javascript', 'java', 'cpp', 'c', 'sql')
 
 
 class LanguageDetector:

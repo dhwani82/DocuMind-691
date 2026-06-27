@@ -1,254 +1,110 @@
-# DocuMind
+# DocuMind - Code Documentation & Agentic Codebase Assistant
 
-DocuMind is a code documentation and analysis tool. It parses source with **deep structural** parsers for **Python**, **JavaScript**, and **SQL**, uses a **universal regex fallback** for other text-based languages, summarizes structure, renders **Mermaid** diagrams, and can generate **docstrings**, **README**, and **architecture** text using **templates** or an optional **OpenAI** model.
+DocuMind analyzes code structure (Python, JavaScript, Java, SQL, and more via a universal fallback parser), generates documentation and diagrams, and answers questions about codebases through a **LangGraph agent** and an optional **floating chat** over analyzed projects.
 
 ## Features
 
-- **Code analysis**: Extract functions (sync, async, nested), classes (bases, methods), variables, decorators, imports, control flow, and more (varies by language).
-- **Inputs**:
-  - Paste code in the web UI
-  - Upload a single file
-  - Upload a **project** (multiple files)
-  - **Local folder**: `POST /api/parse-project` with a server-accessible path
-  - **GitHub**: clone and parse via `POST /api/parse-github-repo`
-- **Language handling**:
-  - **Parse as** override or **Auto** detection from filename and content
-  - **Deep structural parsing** (AST-level or project-specific where implemented): **Python**, **JavaScript/JSX** (including **TypeScript/TSX** on the same parser path), and **SQL**
-  - **Universal fallback parsing** (regex/text heuristics) for all other text-based code and markup, including: **Java**, **C**, **C++**, **C#**, **Go**, **Rust**, **Ruby**, **PHP**, **Swift**, **Kotlin**, **HTML**, **CSS**, **JSON**, **YAML**, **XML**, and similar files, so projects are still ingested, summarized, and available to the **chatbot/RAG** without being marked unsupported
-- **Documentation generation**:
-  - **PEP 257-style docstrings** (Python-oriented pipeline)
-  - **README.md** and **ARCHITECTURE.md**-style outputs with module responsibility and functional overview where data is available
-  - **LLM** (optional `OPENAI_API_KEY`) or **template-only** fallback
-- **Diagrams** (Mermaid), including:
-  - Architecture, **code architecture**, sequence, dependencies, structure, flowchart
-  - **Project** responses add **`file_diagrams`** (per-file diagrams, including per-function flowcharts where applicable)
-- **SVG flowcharts**: `POST /api/generate-svg-flowchart` returns downloadable SVG (Python parse path).
-- **Developer helpers**:
-  - `tests/test_parser_debug.py` — quick `CodeParser` inspection
-  - `tests/sample_code_for_testing.py` — sample snippets for manual tests
+### Analyze & Document
+- **Deep parsers** for Python, JavaScript, Java, SQL
+- **Universal parser** regex fallback for Go, Rust, PHP, Kotlin, and other text-based languages
+- **Input**: paste code, upload files, local folder, uploaded project, or public GitHub repo
+- **Documentation**: PEP 257 docstrings, README.md, ARCHITECTURE.md (LLM or template fallback)
+- **Diagrams**: Mermaid architecture, sequence, dependency, flowchart, structure (+ SVG export)
+- **Parse as** dropdown to override language detection
 
-## Requirements
+### Ask DocuMind (agentic Q&A — full project)
+- **Ask tab**: index a folder, then ask questions with multi-tool retrieval
+- **LangGraph ReAct agent** with tool-first retrieval:
+  - **Agentic**: `grep_code`, `read_file`, `find_symbol`, `get_structure`
+  - **Vector**: `vector_search` (ChromaDB)
+  - **Graph**: `who_calls`, `what_calls`, `impact_of`, `dependencies_of`
+  - **Generation**: docstrings, README, diagrams from retrieved code
+- Answers cite **file:line** sources; **tool trace** shows which tools the agent used
+- Requires **indexing** via `POST /api/index-project` first
 
-- Python 3.x
-- Dependencies in `requirements.txt` (Flask, flask-cors, openai, python-dotenv, pytest, etc.)
+### Floating chat (quick Q&A on current session)
+- **Ask DocuMind AI** launcher (bottom-right) after you analyze or upload a project
+- **`POST /api/chat`**: in-memory RAG over the files loaded in the current browser session
+- Lighter-weight than the agent tab; no persistent index required
 
-## Installation
+### Project indexing
+- **`POST /api/index-project`**: ingest a folder path → vector index + code graph
+- Skips `venv`, `node_modules`, `__pycache__`, `.git`, `dist`, `build`, `target`, `.next`, etc.
+- Respects root **`.gitignore`** when present
+- Canonical **`project_id`** = resolved absolute path (consistent for index + query)
+- macOS path fix: `Users/you/project` auto-normalized to `/Users/you/project`
 
-1. Clone or download this repository.
+### Evaluation (Phase E)
+- Three-way RAGAS comparison: agentic-only vs vector-only vs graph-assisted
+- Golden set: `eval/golden_set.jsonl`; reports in `eval/reports/`
+- Optional LangSmith tracing
 
-2. Create a virtual environment (recommended):
+## Quick start
 
 ```bash
+git clone https://github.com/dhwani82/DocuMind-691.git
+cd DocuMind
 python -m venv venv
-```
-
-3. Activate it:
-
-   - **Windows:** `venv\Scripts\activate`
-   - **Linux/macOS:** `source venv/bin/activate`
-
-4. Install dependencies:
-
-```bash
+source venv/bin/activate          # Windows: venv\Scripts\activate
 pip install -r requirements.txt
-```
-
-5. **OpenAI (optional):** for LLM-backed documentation, set **`OPENAI_API_KEY`**. The web UI does not read the key; the server uses the environment (or an optional `api_key` field on some JSON APIs).
-
-   - **Local:** copy `.env.example` to `.env` and set `OPENAI_API_KEY=sk-...`. `.env` is gitignored.
-   - **Production (e.g. Render):** set **`OPENAI_API_KEY`** in the host’s environment/secrets, not in the repo.
-
-If **`OPENAI_API_KEY`** is unset, documentation still runs on **templates** only.
-
-## Usage (local web app)
-
-1. Activate your virtual environment if you use one.
-
-2. Start the Flask dev server:
-
-```bash
+cp .env.example .env              # add OPENAI_API_KEY for LLM docs + agent + embeddings
 python app.py
 ```
 
-Or explicitly:
+Open **http://127.0.0.1:5001** (default port **5001** avoids macOS AirPlay on 5000).
 
-```bash
-venv\Scripts\python.exe app.py
-```
+### Ask DocuMind workflow (indexed projects)
 
-3. Open **http://127.0.0.1:5001** (default). Port **5001** avoids macOS AirPlay on **5000**. Override with the **`PORT`** environment variable.
+1. **Ask DocuMind** tab → enter folder path → **Index**
+2. Select project from dropdown → ask e.g. *Who calls helper in calls.py?*
 
-4. Paste code, upload a file, or use project / GitHub flows in the UI as provided.
+### Analyze + floating chat workflow
 
-5. Use **Analyze** / **Generate documentation** actions as needed; switch between summary, JSON, and diagram tabs when available.
+1. **Analyze & Diagram** → paste/upload/project → **Analyze Code**
+2. Open **Ask DocuMind AI** (launcher) → ask about the loaded project
 
-**Note:** `app.py` binds **`127.0.0.1`** in debug mode (local only). For a public deployment, use a production WSGI server (see **Deployment**).
+## Environment variables
 
-### Optional: LLM documentation
+| Variable | Purpose |
+|----------|---------|
+| `OPENAI_API_KEY` | LLM docs, agent, chat, embeddings |
+| `LLM_PROVIDER` / `LLM_MODEL` | Chat model (default `gpt-4o-mini`) |
+| `EMBEDDING_PROVIDER` / `EMBEDDING_MODEL` | Vector index |
+| `CHROMA_PERSIST_DIR` / `GRAPH_PERSIST_DIR` | Index persistence |
+| `LANGCHAIN_TRACING_V2` / `LANGSMITH_API_KEY` | Optional LangSmith |
 
-1. Obtain an API key from [OpenAI](https://platform.openai.com/).
-2. Configure **`OPENAI_API_KEY`** (see step 5 under **Installation**).
-3. With a key set, the backend can use **GPT-4o-mini** for richer text; without it, outputs are template-based.
+Never commit `.env` or API keys.
 
-## Testing
-
-Run the test suite with:
+## Running tests
 
 ```bash
 pytest
-```
-
-With coverage (if configured):
-
-```bash
 pytest --cov=. --cov-report=term-missing
 ```
 
 ## Deployment (Render)
 
-This repo includes **`render.yaml`** (Blueprint-style) using **gunicorn**:
+Python web service via Gunicorn (`render.yaml`). Not Docker/K8s by default. Run locally to index paths on your machine.
 
-```bash
-gunicorn --bind 0.0.0.0:$PORT app:app
-```
+## API endpoints
 
-Set secrets such as **`OPENAI_API_KEY`** in the Render dashboard; do not commit them to `render.yaml`.
+| Route | Method | Purpose |
+|-------|--------|---------|
+| `/api/parse` | POST | Parse single file/snippet |
+| `/api/generate-docs` | POST | Docstrings, README, ARCHITECTURE |
+| `/api/index-project` | POST | Index folder → vector + graph |
+| `/api/agent` | POST | LangGraph agent Q&A |
+| `/api/chat` | POST | Session RAG chat over analyzed project |
+| `/api/parse-project` | POST | Parse project layout JSON |
+| `/api/parse-github-repo` | POST | Clone & parse public repo |
 
-## Project structure
+## Sample projects
 
-```
-DocuMind/
-├── app.py                 # Flask app and HTTP API
-├── code_parser.py         # Python parser
-├── javascript_parser.py   # JavaScript parser
-├── sql_parser.py          # SQL parser
-├── language_detector.py   # Language detection / normalization
-├── universal_parser.py   # Regex fallback for non–Python/JS/SQL text sources
-├── project_scanner.py     # Folder scan + aggregate parse
-├── doc_generator.py       # Doc generation (LLM + templates)
-├── diagram_generator.py   # Mermaid diagram generation
-├── svg_generator.py       # SVG flowchart generation
-├── templates/
-│   └── index.html         # Web UI
-├── static/
-│   ├── style.css
-│   └── script.js
-├── tests/                 # pytest tests
-├── requirements.txt
-├── render.yaml            # Render deploy blueprint
-├── .env.example           # Example environment file
-└── README.md
-```
-
-## API reference
-
-All JSON endpoints expect **`Content-Type: application/json`** unless noted.
-
-### `POST /api/parse`
-
-Parse a single code string.
-
-**Body:**
-
-```json
-{
-  "code": "your code",
-  "filename": "optional.py",
-  "language": "python"
-}
-```
-
-`language` may be omitted or `"auto"`. Supported overrides align with parsers: **`python`**, **`javascript`**, **`sql`** (see **Language handling** above).
-
-**Response:** Parse result plus **`diagrams`** (e.g. `architecture`, `code_architecture`, `sequence`, `dependencies`, `flowchart`, `structure`), and optional **`info_messages`** / **`language`**.
-
-### `POST /api/generate-docs`
-
-Generate docstrings / README / architecture text from **Python** source (uses `CodeParser`).
-
-**Body:**
-
-```json
-{
-  "code": "def foo(): pass",
-  "api_key": "sk-..."
-}
-```
-
-`api_key` is optional if `OPENAI_API_KEY` is set.
-
-**Response:** `success`, `used_llm`, `documentation` (`docstrings`, `readme`, `architecture`, …).
-
-### `POST /api/generate-project-docs`
-
-Generate documentation from an aggregated **project** parse result.
-
-**Body:**
-
-```json
-{
-  "project_data": { },
-  "api_key": "sk-..."
-}
-```
-
-### `POST /api/parse-project`
-
-Parse a project directory on the **machine running the server**.
-
-**Body:**
-
-```json
-{
-  "folder_path": "/absolute/path/to/project"
-}
-```
-
-**Response:** Aggregated parse data, **`diagrams`** (whole project), and **`file_diagrams`** (per file).
-
-### `POST /api/parse-uploaded-project`
-
-**`multipart/form-data`** with field **`files`** (multiple files). Supported extensions include `.py`, `.js`, `.jsx`, `.sql`, and others listed in `app.py` (see source for the current set).
-
-**Response:** Same aggregate shape as project parse, including **`diagrams`** and **`file_diagrams`**.
-
-### `POST /api/parse-github-repo`
-
-Clone a GitHub repo to a temporary directory and parse it.
-
-**Body:**
-
-```json
-{
-  "repo_url": "https://github.com/org/repo.git"
-}
-```
-
-**Response:** Aggregate parse plus **`github_repo_url`**, **`cloned_path`**, **`detected_languages`**, **`diagrams`**, **`file_diagrams`**.
-
-**Requirements:** `git` available on the server; network access to GitHub.
-
-### `POST /api/generate-svg-flowchart`
-
-**Body:**
-
-```json
-{
-  "code": "def foo():\n    return 1\n",
-  "function_name": "foo"
-}
-```
-
-**Response:** `image/svg+xml` attachment **`flowchart.svg`** (Python-only parse path).
-
-## Technology stack
-
-- **Backend:** Flask (Python), flask-cors, gunicorn (production)
-- **Frontend:** HTML, CSS, JavaScript
-- **Parsing:** `ast` (Python), custom JS/SQL parsers
-- **Diagrams:** Mermaid (strings for rendering in the UI)
-- **Docs:** OpenAI API (optional) or templates
+| Path | Language |
+|------|----------|
+| `eval/sample_project_data/` | Python |
+| `eval/sample_java_project_data/` | Java |
 
 ## License
 
-This project is open source and available for educational and commercial use.
+Open source for educational and commercial use.

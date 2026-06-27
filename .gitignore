@@ -32,7 +32,23 @@ get-pip.py
 .env
 .env.local
 
+# AI assistant / local tooling
+.cursor/
+.specstory/
+
 # Tests / coverage
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Vector store (local Chroma persistence)
+.chroma/
+
+# Code knowledge graphs (NetworkX persistence)
+.graph_store/
+.chroma_eval/
+.graph_store_eval/
+
+# Evaluation reports (generated)
+eval/reports/*
+!eval/reports/.gitkeep

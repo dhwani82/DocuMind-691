@@ -9,7 +9,9 @@ from typing import Dict, List, Any, Set
 from language_detector import LanguageDetector
 from code_parser import CodeParser
 from javascript_parser import JavaScriptParser
+from java_parser import JavaParser
 from sql_parser import SQLParser
+from project_ignore import DEFAULT_SKIP_DIRS
 from universal_parser import (
     UniversalParser,
     should_index_file_by_path,
@@ -25,6 +27,8 @@ def _parse_code_auto(code: str, language: str, filename: str) -> dict:
         return CodeParser().parse(code)
     if lang_normalized == "javascript":
         return JavaScriptParser().parse(code)
+    if lang_normalized == "java":
+        return JavaParser().parse(code)
     if lang_normalized == "sql":
         return SQLParser().parse(code)
     u = UniversalParser()
@@ -70,10 +74,8 @@ def scan_project(root_path: str) -> Dict[str, Any]:
     if not os.path.isdir(root_path):
         raise ValueError(f'Path is not a directory: {root_path}')
     
-    # Directories to skip
-    skip_dirs = {'.git', '__pycache__', 'node_modules', '.venv', 'venv', 'env',
-                 'dist', 'build', '.pytest_cache', '.mypy_cache', '.idea', '.vscode',
-                 'target', 'bin', 'obj', '.vs', 'coverage', '.coverage'}
+    # Directories to skip (shared with index-project ingestion)
+    skip_dirs = DEFAULT_SKIP_DIRS
     
     # Collect all readable text/code files (any extension, minus binaries / skip path)
     project_files = []

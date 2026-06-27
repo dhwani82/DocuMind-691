@@ -1438,6 +1438,450 @@ header h1 {
     margin-left: 60px;
 }
 
+/* --- App mode tabs (Analyze vs Ask) --- */
+.app-mode-tabs {
+    display: flex;
+    gap: 0;
+    border-bottom: 2px solid #334155;
+    background: linear-gradient(to bottom, #1e293b 0%, #0f172a 100%);
+}
+
+.app-mode-btn {
+    flex: 1;
+    padding: 18px 24px;
+    border: none;
+    background: transparent;
+    color: #94a3b8;
+    font-size: 1rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+    border-bottom: 3px solid transparent;
+    margin-bottom: -2px;
+    letter-spacing: 0.3px;
+}
+
+.app-mode-btn:hover {
+    color: #e2e8f0;
+    background: rgba(59, 130, 246, 0.08);
+}
+
+.app-mode-btn.active {
+    color: #60a5fa;
+    background: rgba(59, 130, 246, 0.12);
+    border-bottom-color: #3b82f6;
+}
+
+/* --- Ask DocuMind panel --- */
+.ask-section {
+    padding: 40px;
+    background: linear-gradient(to bottom, #1e293b 0%, #0f172a 100%);
+    min-height: calc(100vh - 180px);
+}
+
+.ask-header h2 {
+    color: #e2e8f0;
+    font-size: 2rem;
+    font-weight: 700;
+    margin-bottom: 8px;
+    letter-spacing: -0.5px;
+}
+
+.ask-subtitle {
+    color: #94a3b8;
+    font-size: 1rem;
+    margin-bottom: 24px;
+}
+
+.ask-prerequisite-note {
+    background: linear-gradient(135deg, #1e3a8a 0%, #1e293b 100%);
+    border: 1px solid rgba(59, 130, 246, 0.35);
+    border-left: 4px solid #3b82f6;
+    border-radius: 12px;
+    padding: 16px 20px;
+    color: #cbd5e1;
+    font-size: 0.92rem;
+    line-height: 1.65;
+    margin-bottom: 28px;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
+}
+
+.ask-prerequisite-note code {
+    font-family: 'Fira Code', 'Courier New', monospace;
+    font-size: 0.85em;
+    background: rgba(15, 23, 42, 0.6);
+    padding: 2px 6px;
+    border-radius: 4px;
+    color: #93c5fd;
+}
+
+.ask-form {
+    padding: 28px;
+    background: linear-gradient(135deg, #334155 0%, #1e293b 100%);
+    border-radius: 16px;
+    border: 1px solid rgba(59, 130, 246, 0.2);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+    margin-bottom: 24px;
+}
+
+.ask-field-row {
+    margin-bottom: 20px;
+}
+
+.ask-label {
+    display: block;
+    margin-bottom: 10px;
+    font-weight: 700;
+    color: #60a5fa;
+    font-size: 0.85rem;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.ask-project-row {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+.ask-select,
+.ask-input,
+.ask-question-input {
+    width: 100%;
+    padding: 14px 18px;
+    border: 2px solid #334155;
+    border-radius: 12px;
+    font-size: 14px;
+    background: #0f172a;
+    color: #e2e8f0;
+    transition: all 0.3s;
+    font-family: inherit;
+}
+
+.ask-select {
+    min-width: 220px;
+    flex: 0 0 auto;
+    cursor: pointer;
+}
+
+.ask-project-input {
+    flex: 1;
+    min-width: 200px;
+    font-family: 'Fira Code', 'Courier New', monospace;
+}
+
+.ask-question-input {
+    min-height: 120px;
+    resize: vertical;
+    line-height: 1.6;
+    font-family: inherit;
+}
+
+.ask-select:focus,
+.ask-input:focus,
+.ask-question-input:focus {
+    outline: none;
+    border-color: #3b82f6;
+    box-shadow: 0 0 0 4px rgba(59, 130, 246, 0.2);
+    background: #1e293b;
+}
+
+.ask-action-buttons {
+    margin-top: 8px;
+}
+
+.ask-hint {
+    margin-top: 12px;
+    font-size: 0.85rem;
+    color: #64748b;
+    text-align: center;
+}
+
+.ask-loading {
+    text-align: center;
+    padding: 48px 24px;
+    color: #60a5fa;
+}
+
+.ask-loading p {
+    margin-top: 16px;
+    font-size: 1rem;
+    color: #94a3b8;
+}
+
+.ask-loading-spinner {
+    width: 48px;
+    height: 48px;
+    margin: 0 auto;
+    border: 4px solid #334155;
+    border-top-color: #3b82f6;
+    border-radius: 50%;
+    animation: ask-spin 0.9s linear infinite;
+}
+
+@keyframes ask-spin {
+    to { transform: rotate(360deg); }
+}
+
+.ask-error {
+    margin-top: 0;
+    margin-bottom: 24px;
+}
+
+.ask-results {
+    margin-top: 8px;
+}
+
+.ask-results-grid {
+    display: grid;
+    grid-template-columns: 1fr 340px;
+    gap: 24px;
+    align-items: start;
+}
+
+.ask-answer-panel,
+.ask-meta-panel {
+    background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+    border: 1px solid #334155;
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.ask-answer-panel h3,
+.ask-meta-panel h3 {
+    color: #60a5fa;
+    font-size: 1rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 16px;
+    padding-bottom: 10px;
+    border-bottom: 1px solid #334155;
+}
+
+.ask-answer-content {
+    color: #e2e8f0;
+    line-height: 1.7;
+}
+
+.ask-meta-panels {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+}
+
+.ask-sources-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+}
+
+.ask-sources-list li {
+    padding: 10px 12px;
+    margin-bottom: 8px;
+    background: rgba(15, 23, 42, 0.7);
+    border-radius: 8px;
+    border-left: 3px solid #10b981;
+    font-family: 'Fira Code', 'Courier New', monospace;
+    font-size: 0.85rem;
+    color: #a7f3d0;
+    word-break: break-all;
+}
+
+.ask-sources-empty {
+    color: #64748b;
+    font-size: 0.9rem;
+    font-style: italic;
+}
+
+.ask-tool-trace-subtitle {
+    color: #64748b;
+    font-size: 0.82rem;
+    margin: -8px 0 14px;
+}
+
+.ask-tool-trace-list {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    counter-reset: tool-step;
+}
+
+.ask-tool-trace-item {
+    position: relative;
+    padding: 12px 12px 12px 36px;
+    margin-bottom: 10px;
+    background: rgba(15, 23, 42, 0.7);
+    border-radius: 10px;
+    border: 1px solid #334155;
+    counter-increment: tool-step;
+}
+
+.ask-tool-trace-item::before {
+    content: counter(tool-step);
+    position: absolute;
+    left: 10px;
+    top: 12px;
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    background: #334155;
+    color: #94a3b8;
+    font-size: 0.7rem;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.ask-tool-name {
+    display: inline-block;
+    font-family: 'Fira Code', 'Courier New', monospace;
+    font-size: 0.88rem;
+    font-weight: 600;
+    padding: 3px 8px;
+    border-radius: 6px;
+    margin-bottom: 6px;
+}
+
+.ask-tool-strategy {
+    display: block;
+    font-size: 0.75rem;
+    color: #64748b;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 4px;
+}
+
+.ask-tool-args {
+    font-family: 'Fira Code', 'Courier New', monospace;
+    font-size: 0.78rem;
+    color: #94a3b8;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 120px;
+    overflow-y: auto;
+    margin-top: 6px;
+}
+
+.ask-tool-badge-agentic {
+    background: rgba(59, 130, 246, 0.2);
+    color: #93c5fd;
+    border: 1px solid rgba(59, 130, 246, 0.4);
+}
+
+.ask-tool-badge-vector {
+    background: rgba(139, 92, 246, 0.2);
+    color: #c4b5fd;
+    border: 1px solid rgba(139, 92, 246, 0.4);
+}
+
+.ask-tool-badge-graph {
+    background: rgba(16, 185, 129, 0.2);
+    color: #6ee7b7;
+    border: 1px solid rgba(16, 185, 129, 0.4);
+}
+
+.ask-tool-badge-generation {
+    background: rgba(245, 158, 11, 0.2);
+    color: #fcd34d;
+    border: 1px solid rgba(245, 158, 11, 0.4);
+}
+
+.ask-tool-badge-default {
+    background: rgba(100, 116, 139, 0.2);
+    color: #cbd5e1;
+    border: 1px solid rgba(100, 116, 139, 0.4);
+}
+
+#ask-submit-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.ask-index-panel {
+    padding: 24px;
+    margin-bottom: 24px;
+    background: linear-gradient(135deg, #334155 0%, #1e293b 100%);
+    border-radius: 16px;
+    border: 1px solid rgba(16, 185, 129, 0.25);
+    box-shadow: 0 4px 16px rgba(0, 0, 0, 0.35);
+}
+
+.ask-index-title {
+    color: #6ee7b7;
+    font-size: 1rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    margin-bottom: 16px;
+}
+
+.ask-index-actions {
+    margin-top: 4px;
+}
+
+.ask-index-progress {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    margin-top: 16px;
+    padding: 14px 16px;
+    background: rgba(15, 23, 42, 0.65);
+    border-radius: 10px;
+    border: 1px solid #334155;
+}
+
+.ask-index-spinner {
+    width: 28px;
+    height: 28px;
+    margin: 0;
+    flex-shrink: 0;
+}
+
+.ask-index-progress p {
+    margin: 0;
+    color: #94a3b8;
+    font-size: 0.95rem;
+}
+
+.ask-index-success {
+    margin-top: 16px;
+    padding: 14px 16px;
+    background: rgba(16, 185, 129, 0.12);
+    border: 1px solid rgba(16, 185, 129, 0.35);
+    border-radius: 10px;
+    color: #a7f3d0;
+    font-size: 0.92rem;
+    line-height: 1.6;
+}
+
+#ask-project-id[readonly] {
+    opacity: 0.95;
+    cursor: default;
+}
+
+#ask-index-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+@media (max-width: 960px) {
+    .ask-results-grid {
+        grid-template-columns: 1fr;
+    }
+
+    .ask-project-row {
+        flex-direction: column;
+    }
+
+    .ask-select {
+        width: 100%;
+    }
+}
+
 /* --- DocuMind floating chat (standalone) --- */
 .visually-hidden {
     position: absolute;

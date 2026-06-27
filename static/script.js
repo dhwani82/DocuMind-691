@@ -2557,6 +2557,400 @@ function switchDiagramFile(event) {
     }
 }
 
+// --- Ask DocuMind (agent Q&A) ---
+
+let currentAppMode = 'analyze';
+
+const ASK_TOOL_STRATEGY = {
+    grep_code: 'agentic',
+    read_file: 'agentic',
+    list_files: 'agentic',
+    find_symbol: 'agentic',
+    get_structure: 'agentic',
+    vector_search: 'vector',
+    who_calls: 'graph',
+    what_calls: 'graph',
+    impact_of: 'graph',
+    dependencies_of: 'graph',
+    generate_docstrings: 'generation',
+    generate_readme: 'generation',
+    generate_architecture_doc: 'generation',
+    generate_diagram: 'generation',
+    generate_svg_flowchart: 'generation',
+};
+
+const ASK_STRATEGY_LABELS = {
+    agentic: 'Agentic search',
+    vector: 'Vector RAG',
+    graph: 'Code graph',
+    generation: 'Generation',
+};
+
+function switchAppMode(mode) {
+    currentAppMode = mode;
+    const analyzeBtn = document.getElementById('app-mode-analyze-btn');
+    const askBtn = document.getElementById('app-mode-ask-btn');
+    const analyzeWorkspace = document.getElementById('analyze-workspace');
+    const askPanel = document.getElementById('ask-panel');
+
+    if (mode === 'ask') {
+        analyzeBtn.classList.remove('active');
+        askBtn.classList.add('active');
+        analyzeWorkspace.style.display = 'none';
+        askPanel.style.display = 'block';
+    } else {
+        askBtn.classList.remove('active');
+        analyzeBtn.classList.add('active');
+        askPanel.style.display = 'none';
+        analyzeWorkspace.style.display = 'block';
+    }
+}
+
+function applyAskProjectPreset() {
+    applyAskProjectSelection();
+}
+
+function applyAskProjectSelection() {
+    const select = document.getElementById('ask-project-select');
+    const projectInput = document.getElementById('ask-project-id');
+    if (select && select.value && projectInput) {
+        projectInput.value = select.value;
+    }
+}
+
+const ASK_INDEXED_PROJECTS_KEY = 'documind-indexed-projects';
+
+function loadIndexedProjects() {
+    const select = document.getElementById('ask-project-select');
+    if (!select) {
+        return;
+    }
+
+    let projects = [];
+    try {
+        projects = JSON.parse(localStorage.getItem(ASK_INDEXED_PROJECTS_KEY) || '[]');
+    } catch (_err) {
+        projects = [];
+    }
+
+    select.innerHTML = '<option value="">Select an indexed project…</option>';
+    projects.forEach((entry) => {
+        if (!entry || !entry.project_id) {
+            return;
+        }
+        const option = document.createElement('option');
+        option.value = entry.project_id;
+        option.textContent = entry.label || entry.project_id;
+        select.appendChild(option);
+    });
+}
+
+function rememberIndexedProject(projectId, stats) {
+    const select = document.getElementById('ask-project-select');
+    const projectInput = document.getElementById('ask-project-id');
+    if (!select || !projectId) {
+        return;
+    }
+
+    const label = `${projectId.split('/').pop() || projectId} (${stats?.files_scanned ?? '?'} files)`;
+    let projects = [];
+    try {
+        projects = JSON.parse(localStorage.getItem(ASK_INDEXED_PROJECTS_KEY) || '[]');
+    } catch (_err) {
+        projects = [];
+    }
+
+    projects = projects.filter((entry) => entry.project_id !== projectId);
+    projects.unshift({ project_id: projectId, label });
+    localStorage.setItem(ASK_INDEXED_PROJECTS_KEY, JSON.stringify(projects.slice(0, 20)));
+
+    loadIndexedProjects();
+    select.value = projectId;
+    if (projectInput) {
+        projectInput.value = projectId;
+    }
+}
+
+function setAskIndexProgress(visible, message) {
+    const progressEl = document.getElementById('ask-index-progress');
+    const textEl = document.getElementById('ask-index-progress-text');
+    const btn = document.getElementById('ask-index-btn');
+    if (progressEl) {
+        progressEl.style.display = visible ? 'flex' : 'none';
+    }
+    if (textEl && message) {
+        textEl.textContent = message;
+    }
+    if (btn) {
+        btn.disabled = visible;
+    }
+}
+
+function showAskIndexSuccess(data) {
+    const successEl = document.getElementById('ask-index-success');
+    if (!successEl) {
+        return;
+    }
+    const skipped = (data.files_skipped_ignore || 0) + (data.files_skipped_extension || 0);
+    successEl.innerHTML = `
+        <strong>Ready.</strong> Indexed <code>${data.files_scanned}</code> files
+        (${data.chunks_indexed} chunks, graph ${data.graph_nodes} nodes).
+        Skipped ${data.dirs_skipped || 0} dirs / ${skipped} files (venv, node_modules, etc.).
+        <br>project_id: <code>${data.project_id}</code>
+    `;
+    successEl.style.display = 'block';
+}
+
+function clearAskIndexSuccess() {
+    const successEl = document.getElementById('ask-index-success');
+    if (successEl) {
+        successEl.style.display = 'none';
+        successEl.textContent = '';
+    }
+}
+
+function normalizeFolderPathInput(path) {
+    let raw = (path || '').trim().replace(/^["']|["']$/g, '');
+    if (raw.startsWith('Users/')) {
+        raw = `/${raw}`;
+    }
+    return raw;
+}
+
+async function indexAskProject() {
+    const folderInput = document.getElementById('ask-index-folder-path');
+    const folderPath = normalizeFolderPathInput(folderInput?.value || '');
+    if (folderInput && folderPath !== folderInput.value.trim()) {
+        folderInput.value = folderPath;
+    }
+
+    clearAskError();
+    clearAskIndexSuccess();
+    hideAskResults();
+
+    if (!folderPath) {
+        showAskError('Enter a folder path to index.');
+        return;
+    }
+
+    setAskIndexProgress(true, 'Scanning folder and building vector index…');
+
+    try {
+        const response = await fetch('/api/index-project', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ folder_path: folderPath }),
+        });
+
+        setAskIndexProgress(true, 'Building code graph…');
+
+        const data = await response.json().catch(() => ({}));
+
+        if (!response.ok) {
+            showAskError(data.error || `Indexing failed (${response.status})`);
+            return;
+        }
+
+        if (folderInput && data.project_id) {
+            folderInput.value = data.project_id;
+        }
+
+        if (!data.ready) {
+            showAskError('Indexing finished but the project is not ready. Try indexing again.');
+            return;
+        }
+
+        rememberIndexedProject(data.project_id, data);
+        showAskIndexSuccess(data);
+    } catch (err) {
+        showAskError(`Network error while indexing: ${err.message}`);
+    } finally {
+        setAskIndexProgress(false);
+    }
+}
+
+document.addEventListener('DOMContentLoaded', loadIndexedProjects);
+
+function setAskLoading(loading) {
+    const loadingEl = document.getElementById('ask-loading');
+    const submitBtn = document.getElementById('ask-submit-btn');
+    if (loadingEl) {
+        loadingEl.style.display = loading ? 'block' : 'none';
+    }
+    if (submitBtn) {
+        submitBtn.disabled = loading;
+    }
+}
+
+function showAskError(message) {
+    const errorEl = document.getElementById('ask-error-message');
+    if (!errorEl) {
+        return;
+    }
+    errorEl.textContent = message;
+    errorEl.style.display = 'block';
+}
+
+function clearAskError() {
+    const errorEl = document.getElementById('ask-error-message');
+    if (errorEl) {
+        errorEl.textContent = '';
+        errorEl.style.display = 'none';
+    }
+}
+
+function hideAskResults() {
+    const resultsEl = document.getElementById('ask-results');
+    if (resultsEl) {
+        resultsEl.style.display = 'none';
+    }
+}
+
+function formatAskToolArgs(args) {
+    if (!args || typeof args !== 'object') {
+        return '';
+    }
+    try {
+        const text = JSON.stringify(args, null, 2);
+        return text.length > 400 ? text.slice(0, 400) + '…' : text;
+    } catch (_err) {
+        return String(args);
+    }
+}
+
+function renderAskToolTrace(toolTrace) {
+    const listEl = document.getElementById('ask-tool-trace-list');
+    if (!listEl) {
+        return;
+    }
+    listEl.innerHTML = '';
+
+    if (!toolTrace || toolTrace.length === 0) {
+        const empty = document.createElement('li');
+        empty.className = 'ask-sources-empty';
+        empty.textContent = 'No tools were called (direct answer).';
+        listEl.appendChild(empty);
+        return;
+    }
+
+    toolTrace.forEach((entry) => {
+        const toolName = entry.tool || 'unknown';
+        const strategy = ASK_TOOL_STRATEGY[toolName] || 'other';
+        const badgeClass = ASK_TOOL_STRATEGY[toolName]
+            ? `ask-tool-badge-${strategy}`
+            : 'ask-tool-badge-default';
+
+        const li = document.createElement('li');
+        li.className = 'ask-tool-trace-item';
+
+        const strategyLabel = document.createElement('span');
+        strategyLabel.className = 'ask-tool-strategy';
+        strategyLabel.textContent = ASK_STRATEGY_LABELS[strategy] || 'Tool';
+
+        const nameSpan = document.createElement('span');
+        nameSpan.className = `ask-tool-name ${badgeClass}`;
+        nameSpan.textContent = toolName;
+
+        li.appendChild(strategyLabel);
+        li.appendChild(nameSpan);
+
+        const argsText = formatAskToolArgs(entry.args);
+        if (argsText) {
+            const argsPre = document.createElement('pre');
+            argsPre.className = 'ask-tool-args';
+            argsPre.textContent = argsText;
+            li.appendChild(argsPre);
+        }
+
+        listEl.appendChild(li);
+    });
+}
+
+function renderAskSources(sources) {
+    const listEl = document.getElementById('ask-sources-list');
+    if (!listEl) {
+        return;
+    }
+    listEl.innerHTML = '';
+
+    if (!sources || sources.length === 0) {
+        const empty = document.createElement('li');
+        empty.className = 'ask-sources-empty';
+        empty.textContent = 'No file:line citations returned.';
+        listEl.appendChild(empty);
+        return;
+    }
+
+    sources.forEach((source) => {
+        const li = document.createElement('li');
+        li.textContent = source;
+        listEl.appendChild(li);
+    });
+}
+
+function displayAskResults(data) {
+    const resultsEl = document.getElementById('ask-results');
+    const answerEl = document.getElementById('ask-answer-content');
+    if (!resultsEl || !answerEl) {
+        return;
+    }
+
+    const answer = data.answer || '';
+    answerEl.innerHTML = convertMarkdownToHTML(answer);
+    renderAskSources(data.sources || []);
+    renderAskToolTrace(data.tool_trace || []);
+    resultsEl.style.display = 'block';
+    resultsEl.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+async function askDocuMind() {
+    const projectId = (document.getElementById('ask-project-id')?.value || '').trim();
+    const message = (document.getElementById('ask-question-input')?.value || '').trim();
+
+    clearAskError();
+    hideAskResults();
+
+    if (!projectId) {
+        showAskError('Please enter a project_id or folder path.');
+        return;
+    }
+    if (!message) {
+        showAskError('Please enter a question.');
+        return;
+    }
+
+    setAskLoading(true);
+
+    try {
+        const response = await fetch('/api/agent', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ project_id: projectId, message }),
+        });
+
+        const data = await response.json().catch(() => ({}));
+
+        if (response.status === 409) {
+            showAskError(
+                data.error ||
+                    "Project is not ready. Ingest it into the vector index and build the code graph first, then try again."
+            );
+            return;
+        }
+
+        if (!response.ok) {
+            showAskError(data.error || `Request failed (${response.status})`);
+            return;
+        }
+
+        displayAskResults(data);
+    } catch (err) {
+        showAskError(`Network error: ${err.message}`);
+    } finally {
+        setAskLoading(false);
+    }
+}
+
 /**
  * DocuMind floating chat — independent; POST /api/chat { question } → { answer, sources }
  */

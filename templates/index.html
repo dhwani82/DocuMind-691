@@ -15,6 +15,12 @@
         </header>
 
         <div class="main-content">
+            <div class="app-mode-tabs">
+                <button type="button" class="app-mode-btn active" id="app-mode-analyze-btn" onclick="switchAppMode('analyze')">Analyze &amp; Diagram</button>
+                <button type="button" class="app-mode-btn" id="app-mode-ask-btn" onclick="switchAppMode('ask')">Ask DocuMind</button>
+            </div>
+
+            <div id="analyze-workspace">
             <div class="input-section">
                 <!-- OpenAI: use server OPENAI_API_KEY env only (no client key field) -->
                 <!-- Parser Mode Selection -->
@@ -64,6 +70,7 @@
                             <option value="auto">Auto (detect from file or code)</option>
                             <option value="python">Python</option>
                             <option value="javascript">JavaScript</option>
+                            <option value="java">Java</option>
                             <option value="cpp">C++</option>
                             <option value="c">C</option>
                             <option value="sql">SQL</option>
@@ -366,6 +373,115 @@
             </div>
 
             <div id="error-message" class="error-message" style="display: none;"></div>
+            </div>
+
+            <div id="ask-panel" class="ask-section" style="display: none;">
+                <div class="ask-header">
+                    <h2>Ask DocuMind</h2>
+                    <p class="ask-subtitle">Ask grounded questions about an indexed codebase — the agent chooses retrieval tools as it works.</p>
+                </div>
+
+                <div class="ask-prerequisite-note">
+                    <strong>Index first:</strong> pick a local project folder and click <em>Index</em> to run vector ingestion and code-graph build.
+                    Try the bundled samples: <code>eval/sample_project_data</code> (Python) or <code>eval/sample_java_project_data</code> (Java).
+                </div>
+
+                <div class="ask-index-panel">
+                    <h3 class="ask-index-title">Index a project</h3>
+                    <div class="ask-field-row">
+                        <label for="ask-index-folder-path" class="ask-label">Folder path</label>
+                        <input
+                            type="text"
+                            id="ask-index-folder-path"
+                            class="ask-input ask-project-input"
+                            placeholder="/Users/you/project or Users/you/project (macOS)"
+                            autocomplete="off"
+                        >
+                    </div>
+                    <div class="action-buttons ask-index-actions">
+                        <button type="button" class="doc-btn" id="ask-index-btn" onclick="indexAskProject()">
+                            <span>Index</span>
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M12 3v12"></path>
+                                <path d="m7 10 5 5 5-5"></path>
+                                <path d="M5 21h14"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <div id="ask-index-progress" class="ask-index-progress" style="display: none;">
+                        <div class="ask-loading-spinner ask-index-spinner"></div>
+                        <p id="ask-index-progress-text">Indexing project…</p>
+                    </div>
+                    <div id="ask-index-success" class="ask-index-success" style="display: none;"></div>
+                </div>
+
+                <div class="ask-form">
+                    <div class="ask-field-row">
+                        <label for="ask-project-select" class="ask-label">Project</label>
+                        <div class="ask-project-row">
+                            <select id="ask-project-select" class="ask-select" onchange="applyAskProjectSelection()" title="Indexed projects">
+                                <option value="">Select an indexed project…</option>
+                            </select>
+                            <input
+                                type="text"
+                                id="ask-project-id"
+                                class="ask-input ask-project-input"
+                                placeholder="project_id (auto-filled after indexing)"
+                                autocomplete="off"
+                                readonly
+                            >
+                        </div>
+                    </div>
+
+                    <div class="ask-field-row">
+                        <label for="ask-question-input" class="ask-label">Question</label>
+                        <textarea
+                            id="ask-question-input"
+                            class="ask-question-input"
+                            rows="4"
+                            placeholder="e.g. Who calls helper() in calls.py?"
+                            onkeydown="if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) askDocuMind();"
+                        ></textarea>
+                    </div>
+
+                    <div class="action-buttons ask-action-buttons">
+                        <button type="button" class="parse-btn" id="ask-submit-btn" onclick="askDocuMind()">
+                            <span>Ask</span>
+                            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"></path>
+                            </svg>
+                        </button>
+                    </div>
+                    <p class="ask-hint">Tip: ⌘/Ctrl + Enter to submit</p>
+                </div>
+
+                <div id="ask-loading" class="ask-loading" style="display: none;">
+                    <div class="ask-loading-spinner"></div>
+                    <p>Agent is searching the codebase and choosing tools…</p>
+                </div>
+
+                <div id="ask-error-message" class="error-message ask-error" style="display: none;"></div>
+
+                <div id="ask-results" class="ask-results" style="display: none;">
+                    <div class="ask-results-grid">
+                        <div class="ask-answer-panel">
+                            <h3>Answer</h3>
+                            <div id="ask-answer-content" class="ask-answer-content doc-markdown"></div>
+                        </div>
+                        <aside class="ask-meta-panels">
+                            <div class="ask-meta-panel">
+                                <h3>Sources</h3>
+                                <ul id="ask-sources-list" class="ask-sources-list"></ul>
+                            </div>
+                            <div class="ask-meta-panel ask-tool-trace-panel">
+                                <h3>How it answered</h3>
+                                <p class="ask-tool-trace-subtitle">Tools the agent called, in order</p>
+                                <ol id="ask-tool-trace-list" class="ask-tool-trace-list"></ol>
+                            </div>
+                        </aside>
+                    </div>
+                </div>
+            </div>
         </div>
     </div>
 
