@@ -4,14 +4,14 @@ Language detection utility with file extension priority.
 This module provides language detection that prioritizes file extensions
 over other detection methods, making it more reliable and faster.
 
-Normalized language names: "python", "javascript", "cpp", "c", "sql"
+Normalized language names: "python", "javascript", "java", "cpp", "c", "sql"
 """
 
 import re
 from typing import Optional, Dict, List
 
 # Normalized language names returned by the detector
-NORMALIZED_LANGUAGES = ('python', 'javascript', 'cpp', 'c', 'sql')
+NORMALIZED_LANGUAGES = ('python', 'javascript', 'java', 'cpp', 'c', 'sql')
 
 
 class LanguageDetector:
@@ -29,6 +29,8 @@ class LanguageDetector:
         '.jsx': 'javascript',
         '.ts': 'javascript',
         '.tsx': 'javascript',
+        # Java
+        '.java': 'java',
         # C++
         '.cpp': 'cpp',
         '.cc': 'cpp',
@@ -53,6 +55,11 @@ class LanguageDetector:
             re.compile(r'\b(?:function|const|let|var|=>|require\(|import\s)'),
             re.compile(r'console\.(log|error|warn)'),
             re.compile(r'/\*.*\*/|//'),
+        ],
+        'java': [
+            re.compile(r'\b(?:public|private|protected)\s+(?:static\s+)?(?:class|interface|enum)\s+\w+'),
+            re.compile(r'\b(?:import|package)\s+[\w.]+;'),
+            re.compile(r'\bSystem\.out\.println\s*\('),
         ],
         'cpp': [
             re.compile(r'#include\s*[<"]'),

@@ -9,7 +9,9 @@ from typing import Dict, List, Any, Set
 from language_detector import LanguageDetector
 from code_parser import CodeParser
 from javascript_parser import JavaScriptParser
+from java_parser import JavaParser
 from sql_parser import SQLParser
+from project_ignore import DEFAULT_SKIP_DIRS
 
 
 def _parse_code_auto(code: str, language: str) -> dict:
@@ -36,12 +38,16 @@ def _parse_code_auto(code: str, language: str) -> dict:
         parser = JavaScriptParser()
         result = parser.parse(code)
         return result
+    elif lang_normalized == 'java':
+        parser = JavaParser()
+        result = parser.parse(code)
+        return result
     elif lang_normalized == 'sql':
         parser = SQLParser()
         result = parser.parse(code)
         return result
     else:
-        raise ValueError(f'Language "{lang_normalized}" is not yet supported. Supported languages: python, javascript, sql.')
+        raise ValueError(f'Language "{lang_normalized}" is not yet supported. Supported languages: python, javascript, java, sql.')
 
 
 def scan_project(root_path: str) -> Dict[str, Any]:
@@ -77,10 +83,8 @@ def scan_project(root_path: str) -> Dict[str, Any]:
         '.sql'                   # SQL
     }
     
-    # Directories to skip
-    skip_dirs = {'.git', '__pycache__', 'node_modules', '.venv', 'venv', 'env', '.env', 
-                 'dist', 'build', '.pytest_cache', '.mypy_cache', '.idea', '.vscode',
-                 'target', 'bin', 'obj', '.vs', 'coverage', '.coverage'}
+    # Directories to skip (shared with index-project ingestion)
+    skip_dirs = DEFAULT_SKIP_DIRS
     
     # Collect all supported files
     project_files = []

@@ -11,9 +11,10 @@ from llama_index.core.node_parser import CodeSplitter, SentenceSplitter
 from language_detector import LanguageDetector
 from code_parser import CodeParser
 from javascript_parser import JavaScriptParser
+from java_parser import JavaParser
 from sql_parser import SQLParser
 
-PARSEABLE_LANGUAGES = frozenset({"python", "javascript", "sql"})
+PARSEABLE_LANGUAGES = frozenset({"python", "javascript", "java", "sql"})
 
 CODE_SPLITTER_LANGUAGES = frozenset(
     {
@@ -37,6 +38,7 @@ LANGUAGE_TO_CODE_SPLITTER = {
     "sql": "sql",
     "c": "c",
     "cpp": "cpp",
+    "java": "java",
 }
 
 
@@ -63,6 +65,8 @@ def _parse_code(code: str, language: str) -> dict[str, Any]:
         return CodeParser().parse(code)
     if lang == "javascript":
         return JavaScriptParser().parse(code)
+    if lang == "java":
+        return JavaParser().parse(code)
     if lang == "sql":
         return SQLParser().parse(code)
     return {}

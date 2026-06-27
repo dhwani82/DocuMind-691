@@ -13,10 +13,11 @@ import networkx as nx
 
 from code_parser import CodeParser
 from javascript_parser import JavaScriptParser
+from java_parser import JavaParser
 from language_detector import LanguageDetector
 from sql_parser import SQLParser
 
-PARSEABLE_LANGUAGES = frozenset({"python", "javascript", "sql"})
+PARSEABLE_LANGUAGES = frozenset({"python", "javascript", "java", "sql"})
 DEFAULT_GRAPH_DIR = Path(os.getenv("GRAPH_PERSIST_DIR", ".graph_store"))
 
 EDGE_IMPORTS = "imports"
@@ -43,6 +44,8 @@ def _parse_code(code: str, language: str) -> dict[str, Any]:
         return CodeParser().parse(code)
     if lang == "javascript":
         return JavaScriptParser().parse(code)
+    if lang == "java":
+        return JavaParser().parse(code)
     if lang == "sql":
         return SQLParser().parse(code)
     return {}

@@ -70,6 +70,7 @@
                             <option value="auto">Auto (detect from file or code)</option>
                             <option value="python">Python</option>
                             <option value="javascript">JavaScript</option>
+                            <option value="java">Java</option>
                             <option value="cpp">C++</option>
                             <option value="c">C</option>
                             <option value="sql">SQL</option>
@@ -382,7 +383,7 @@
 
                 <div class="ask-prerequisite-note">
                     <strong>Index first:</strong> pick a local project folder and click <em>Index</em> to run vector ingestion and code-graph build.
-                    The same <code>project_id</code> is used for querying — no path mismatch.
+                    Try the bundled samples: <code>eval/sample_project_data</code> (Python) or <code>eval/sample_java_project_data</code> (Java).
                 </div>
 
                 <div class="ask-index-panel">
@@ -393,7 +394,7 @@
                             type="text"
                             id="ask-index-folder-path"
                             class="ask-input ask-project-input"
-                            placeholder="e.g. eval/sample_project_data or /Users/you/project"
+                            placeholder="/Users/you/project or Users/you/project (macOS)"
                             autocomplete="off"
                         >
                     </div>

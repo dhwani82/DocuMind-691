@@ -12,6 +12,11 @@ def test_detect_javascript_from_js_and_ts():
     assert LanguageDetector.detect("App.tsx") == "javascript"
 
 
+def test_detect_java_from_extension():
+    assert LanguageDetector.detect("Calculator.java") == "java"
+    assert LanguageDetector.is_supported("Main.java") is True
+
+
 def test_detect_cpp_from_cpp_extension():
     assert LanguageDetector.detect("main.cpp") == "cpp"
     assert LanguageDetector.detect("lib.cc") == "cpp"

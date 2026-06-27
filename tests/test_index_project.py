@@ -78,6 +78,25 @@ def test_index_project_folder_marks_project_ready(
     assert is_project_ready(result.project_id, vector_store=vector_store, graph_store=graph_store)
 
 
+def test_normalize_folder_input_adds_leading_slash_for_macos_users_path():
+    from project_indexing import normalize_folder_input
+
+    assert normalize_folder_input("Users/me/project") == "/Users/me/project"
+    assert normalize_folder_input('"/Users/me/project"') == "/Users/me/project"
+
+
+def test_resolve_project_folder_accepts_users_prefix_without_leading_slash(
+    tiny_project: Path,
+):
+    from project_indexing import resolve_project_folder
+
+    # Simulate macOS paste: strip mount prefix from absolute path.
+    abs_path = tiny_project.as_posix()
+    if abs_path.startswith("/Users/"):
+        users_prefixed = abs_path[len("/") :]  # "Users/..."
+        assert resolve_project_folder(users_prefixed) == tiny_project.resolve()
+
+
 def test_index_project_api_returns_ready_project(
     client,
     tiny_project: Path,

@@ -20,6 +20,7 @@ from diagram_generator import DiagramGenerator
 from svg_generator import SVGFlowchartGenerator
 from language_detector import LanguageDetector, NORMALIZED_LANGUAGES
 from javascript_parser import JavaScriptParser
+from java_parser import JavaParser
 from sql_parser import SQLParser
 from project_scanner import scan_project
 
@@ -290,12 +291,16 @@ def parse_code_auto(code: str, language: str) -> dict:
         parser = JavaScriptParser()
         result = parser.parse(code)
         return result
+    elif lang_normalized == 'java':
+        parser = JavaParser()
+        result = parser.parse(code)
+        return result
     elif lang_normalized == 'sql':
         parser = SQLParser()
         result = parser.parse(code)
         return result
     else:
-        raise ValueError(f'Language "{lang_normalized}" is not yet supported. Supported languages: python, javascript, sql.')
+        raise ValueError(f'Language "{lang_normalized}" is not yet supported. Supported languages: python, javascript, java, sql.')
 
 def normalize_variable_fields(result: dict) -> dict:
     """Normalize variable fields to have consistent structure: name, type, line, source.

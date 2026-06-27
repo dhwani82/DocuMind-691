@@ -14,6 +14,7 @@ from code_parser import CodeParser
 from diagram_generator import DiagramGenerator
 from doc_generator import DocumentationGenerator
 from javascript_parser import JavaScriptParser
+from java_parser import JavaParser
 from language_detector import LanguageDetector
 from sql_parser import SQLParser
 from svg_generator import SVGFlowchartGenerator
@@ -53,12 +54,14 @@ def _parse_code_for_diagram(code: str) -> tuple[dict[str, Any], Optional[str]]:
             result = CodeParser().parse(code)
         elif lang_normalized == "javascript":
             result = JavaScriptParser().parse(code)
+        elif lang_normalized == "java":
+            result = JavaParser().parse(code)
         elif lang_normalized == "sql":
             result = SQLParser().parse(code)
         else:
             return {}, (
                 f'Language "{lang_normalized}" is not yet supported. '
-                "Supported languages: python, javascript, sql."
+                "Supported languages: python, javascript, java, sql."
             )
 
         result["language"] = lang_normalized

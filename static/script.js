@@ -2665,10 +2665,11 @@ function showAskIndexSuccess(data) {
     if (!successEl) {
         return;
     }
+    const skipped = (data.files_skipped_ignore || 0) + (data.files_skipped_extension || 0);
     successEl.innerHTML = `
-        <strong>Ready.</strong> Indexed <code>${data.files_scanned}</code> files,
-        <code>${data.chunks_indexed}</code> chunks,
-        graph <code>${data.graph_nodes}</code> nodes / <code>${data.graph_edges}</code> edges.
+        <strong>Ready.</strong> Indexed <code>${data.files_scanned}</code> files
+        (${data.chunks_indexed} chunks, graph ${data.graph_nodes} nodes).
+        Skipped ${data.dirs_skipped || 0} dirs / ${skipped} files (venv, node_modules, etc.).
         <br>project_id: <code>${data.project_id}</code>
     `;
     successEl.style.display = 'block';
@@ -2682,9 +2683,20 @@ function clearAskIndexSuccess() {
     }
 }
 
+function normalizeFolderPathInput(path) {
+    let raw = (path || '').trim().replace(/^["']|["']$/g, '');
+    if (raw.startsWith('Users/')) {
+        raw = `/${raw}`;
+    }
+    return raw;
+}
+
 async function indexAskProject() {
     const folderInput = document.getElementById('ask-index-folder-path');
-    const folderPath = (folderInput?.value || '').trim();
+    const folderPath = normalizeFolderPathInput(folderInput?.value || '');
+    if (folderInput && folderPath !== folderInput.value.trim()) {
+        folderInput.value = folderPath;
+    }
 
     clearAskError();
     clearAskIndexSuccess();
@@ -2711,6 +2723,10 @@ async function indexAskProject() {
         if (!response.ok) {
             showAskError(data.error || `Indexing failed (${response.status})`);
             return;
+        }
+
+        if (folderInput && data.project_id) {
+            folderInput.value = data.project_id;
         }
 
         if (!data.ready) {

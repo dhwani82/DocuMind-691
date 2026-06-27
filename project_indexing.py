@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import os
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Optional
 
 from chunking import chunk_file
 from code_graph import NetworkXGraphStore, build_graph, has_graph
-from code_tools import SKIP_DIRS
+from project_ignore import FileScanStats, enumerate_indexable_files
 from vector_index import ChromaVectorStore, ingest_project, is_indexed
 
 INDEXABLE_EXTENSIONS = frozenset(
@@ -20,14 +19,26 @@ INDEXABLE_EXTENSIONS = frozenset(
         ".js",
         ".jsx",
         ".mjs",
+        ".java",
         ".sql",
     }
 )
 
 
+def normalize_folder_input(path_or_id: str) -> str:
+    """Normalize common folder path paste mistakes."""
+    raw = (path_or_id or "").strip().strip('"').strip("'")
+    if not raw:
+        return raw
+    # macOS absolute paths are often pasted without the leading slash.
+    if raw.startswith("Users/"):
+        raw = f"/{raw}"
+    return raw
+
+
 def resolve_project_folder(path_or_id: str) -> Path:
     """Resolve user input to an existing project directory."""
-    raw = (path_or_id or "").strip()
+    raw = normalize_folder_input(path_or_id)
     if not raw:
         raise ValueError("folder path is required")
 
@@ -41,7 +52,7 @@ def resolve_project_folder(path_or_id: str) -> Path:
 
     raise ValueError(
         f"Project directory not found for '{path_or_id}'. "
-        "Use an absolute path or a folder under the current working directory."
+        "Use the full absolute path (e.g. /Users/you/project), including the leading / on macOS."
     )
 
 
@@ -50,21 +61,9 @@ def canonical_project_id(path_or_id: str) -> str:
     return resolve_project_folder(path_or_id).as_posix()
 
 
-def collect_indexable_files(project_root: Path) -> list[Path]:
+def collect_indexable_files(project_root: Path) -> tuple[list[Path], FileScanStats]:
     """Collect source files under project_root for indexing."""
-    root = project_root.resolve()
-    files: list[Path] = []
-
-    for dirpath, dirnames, filenames in os.walk(root):
-        dirnames[:] = sorted(d for d in dirnames if d not in SKIP_DIRS)
-        for filename in sorted(filenames):
-            path = Path(dirpath) / filename
-            if path.suffix.lower() not in INDEXABLE_EXTENSIONS:
-                continue
-            if path.is_file():
-                files.append(path.resolve())
-
-    return files
+    return enumerate_indexable_files(project_root, INDEXABLE_EXTENSIONS)
 
 
 @dataclass
@@ -80,6 +79,9 @@ class IndexProjectResult:
     graph_nodes: int
     graph_edges: int
     phases: list[dict[str, Any]]
+    files_skipped_ignore: int = 0
+    files_skipped_extension: int = 0
+    dirs_skipped: int = 0
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -96,12 +98,15 @@ def index_project_folder(
     project_id = project_root.as_posix()
     phases: list[dict[str, Any]] = []
 
-    files = collect_indexable_files(project_root)
+    files, scan_stats = collect_indexable_files(project_root)
     phases.append(
         {
             "phase": "scan",
             "status": "complete",
-            "files_scanned": len(files),
+            "files_indexed": scan_stats.files_indexed,
+            "files_skipped_ignore": scan_stats.files_skipped_ignore,
+            "files_skipped_extension": scan_stats.files_skipped_extension,
+            "dirs_skipped": scan_stats.dirs_skipped,
         }
     )
 
@@ -151,7 +156,10 @@ def index_project_folder(
         project_id=project_id,
         project_root=project_id,
         ready=ready,
-        files_scanned=len(files),
+        files_scanned=scan_stats.files_indexed,
+        files_skipped_ignore=scan_stats.files_skipped_ignore,
+        files_skipped_extension=scan_stats.files_skipped_extension,
+        dirs_skipped=scan_stats.dirs_skipped,
         chunks_indexed=chunks_indexed,
         graph_nodes=graph_stats["nodes"],
         graph_edges=graph_stats["edges"],
