@@ -189,18 +189,31 @@ def ingest_project(
     vector_store: Optional[VectorStore] = None,
     embedding_model: Optional[Embeddings] = None,
     chunker: Callable[[str], list[CodeChunk]] | None = None,
+    project_root: str | Path | None = None,
 ) -> int:
     """Chunk and upsert a list of project files into the vector index."""
     store = vector_store or ChromaVectorStore(embedding_model=embedding_model)
     chunk_fn = chunker or (lambda file_path: chunk_file(file_path, config=config))
+    root = Path(project_root).resolve() if project_root else None
 
     all_chunks: list[CodeChunk] = []
     for file_path in files:
-        path = Path(file_path)
+        path = Path(file_path).expanduser()
+        if not path.is_absolute() and root is not None:
+            path = (root / path).resolve()
+        else:
+            path = path.resolve()
         if not path.is_file():
             continue
 
-        relative_path = path.as_posix()
+        if root is not None:
+            try:
+                relative_path = path.relative_to(root).as_posix()
+            except ValueError:
+                relative_path = path.name
+        else:
+            relative_path = path.as_posix()
+
         file_chunks = chunk_fn(str(path))
         for chunk in file_chunks:
             chunk.metadata["file_path"] = relative_path

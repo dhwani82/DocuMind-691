@@ -1046,6 +1046,32 @@ def generate_svg_flowchart():
         return jsonify({'error': f'Error generating SVG flowchart: {str(e)}'}), 500
 
 
+@app.route('/api/index-project', methods=['POST'])
+def index_project_route():
+    """Ingest a folder into the vector index and build its code graph."""
+    try:
+        if not request.is_json:
+            return jsonify({'error': 'Request must be JSON'}), 400
+
+        data = request.json or {}
+        folder_path = str(data.get('folder_path') or data.get('path') or '').strip()
+        if not folder_path:
+            return jsonify({'error': 'folder_path is required'}), 400
+
+        from project_indexing import index_project_folder
+
+        result = index_project_folder(folder_path)
+        return jsonify(result.to_dict())
+    except ValueError as exc:
+        return jsonify({'error': str(exc)}), 400
+    except Exception as e:
+        import traceback
+
+        error_details = traceback.format_exc()
+        print(f"Error indexing project: {error_details}")
+        return jsonify({'error': f'Error indexing project: {str(e)}'}), 500
+
+
 @app.route('/api/agent', methods=['POST'])
 def agent_query():
     """Run the DocuMind LangGraph agent against an indexed project."""
@@ -1064,9 +1090,11 @@ def agent_query():
             return jsonify({'error': 'message is required'}), 400
 
         from agent import get_agent, is_project_ready, resolve_project_root, run_agent
+        from project_indexing import canonical_project_id
 
         try:
             project_root = resolve_project_root(project_id)
+            project_id = canonical_project_id(str(project_root))
         except ValueError as exc:
             return jsonify({'error': str(exc)}), 404
 

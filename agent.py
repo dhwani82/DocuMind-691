@@ -69,18 +69,9 @@ class AgentRunResult:
 
 def resolve_project_root(project_id: str) -> Path:
     """Resolve a project_id to an on-disk project directory."""
-    candidate = Path(project_id).expanduser()
-    if candidate.is_dir():
-        return candidate.resolve()
+    from project_indexing import resolve_project_folder
 
-    cwd_candidate = (Path.cwd() / project_id).resolve()
-    if cwd_candidate.is_dir():
-        return cwd_candidate
-
-    raise ValueError(
-        f"Project directory not found for project_id '{project_id}'. "
-        "Use an existing directory path or a folder name under the current working directory."
-    )
+    return resolve_project_folder(project_id)
 
 
 def is_project_ready(

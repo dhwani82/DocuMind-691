@@ -411,18 +411,31 @@ def build_graph(
     files: list[str],
     *,
     graph_store: Optional[CodeGraphStore] = None,
+    project_root: str | Path | None = None,
 ) -> dict[str, int]:
     """Parse project files and persist a directed code graph."""
     store = graph_store or NetworkXGraphStore()
     builder = CodeGraphBuilder()
     parsed_entries: list[tuple[str, dict[str, Any]]] = []
+    root = Path(project_root).resolve() if project_root else None
 
     for file_path in files:
-        path = Path(file_path)
+        path = Path(file_path).expanduser()
+        if not path.is_absolute() and root is not None:
+            path = (root / path).resolve()
+        else:
+            path = path.resolve()
         if not path.is_file():
             continue
 
-        rel_path = path.as_posix()
+        if root is not None:
+            try:
+                rel_path = path.relative_to(root).as_posix()
+            except ValueError:
+                rel_path = path.name
+        else:
+            rel_path = path.as_posix()
+
         code = path.read_text(encoding="utf-8", errors="replace")
         language = LanguageDetector.detect(filename=rel_path, code=code)
         if not language or language.lower() not in PARSEABLE_LANGUAGES:
