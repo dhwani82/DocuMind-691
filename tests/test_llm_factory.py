@@ -1,5 +1,8 @@
 """Tests for provider-agnostic LLM and embedding factory."""
 
+import subprocess
+import sys
+from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -16,6 +19,73 @@ from llm_factory import (
     get_chat_model,
     get_embedding_model,
 )
+
+DOCUMIND_ROOT = Path(__file__).resolve().parents[1]
+
+
+def test_import_llm_factory_openai_does_not_import_transformers():
+    """Importing llm_factory with openai must not load transformers/torch."""
+    script = """
+import os
+import sys
+
+os.environ["EMBEDDING_PROVIDER"] = "openai"
+
+import llm_factory  # noqa: F401
+
+blocked_roots = ("transformers", "torch", "sentence_transformers")
+loaded = sorted(
+    name
+    for name in sys.modules
+    if name in blocked_roots
+    or name.startswith("transformers.")
+    or name.startswith("torch.")
+    or name.startswith("sentence_transformers.")
+)
+if loaded:
+    raise SystemExit("heavy modules loaded: " + ", ".join(loaded))
+print("ok")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=str(DOCUMIND_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, (result.stdout or "") + (result.stderr or "")
+
+
+def test_import_vector_index_openai_does_not_import_transformers():
+    """vector_index must not pull transformers/torch when only imported."""
+    script = """
+import os
+import sys
+
+os.environ["EMBEDDING_PROVIDER"] = "openai"
+os.environ["OPENAI_API_KEY"] = "sk-test"
+
+import vector_index  # noqa: F401
+
+blocked_roots = ("transformers", "torch", "sentence_transformers")
+loaded = sorted(
+    name
+    for name in sys.modules
+    if name in blocked_roots
+    or name.startswith("transformers.")
+    or name.startswith("torch.")
+    or name.startswith("sentence_transformers.")
+)
+if loaded:
+    raise SystemExit("heavy modules loaded: " + ", ".join(loaded))
+print("ok")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=str(DOCUMIND_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, (result.stdout or "") + (result.stderr or "")
 
 
 @pytest.fixture(autouse=True)
@@ -123,12 +193,12 @@ def test_get_embedding_model_local_from_env(monkeypatch):
 
     mock_embeddings = MagicMock(spec=Embeddings)
     with patch(
-        "langchain_huggingface.HuggingFaceEmbeddings",
+        "llm_factory._build_local_embedding_model",
         return_value=mock_embeddings,
-    ) as mock_cls:
+    ) as mock_builder:
         result = get_embedding_model()
 
-    mock_cls.assert_called_once_with(model_name="BAAI/bge-small-en-v1.5")
+    mock_builder.assert_called_once_with("BAAI/bge-small-en-v1.5")
     assert result is mock_embeddings
 
 
@@ -136,12 +206,12 @@ def test_get_embedding_model_local_default_model(monkeypatch):
     monkeypatch.setenv("EMBEDDING_PROVIDER", "local")
 
     with patch(
-        "langchain_huggingface.HuggingFaceEmbeddings",
+        "llm_factory._build_local_embedding_model",
         return_value=MagicMock(spec=Embeddings),
-    ) as mock_cls:
+    ) as mock_builder:
         get_embedding_model()
 
-    mock_cls.assert_called_once_with(model_name="BAAI/bge-small-en-v1.5")
+    mock_builder.assert_called_once_with("BAAI/bge-small-en-v1.5")
 
 
 def test_get_embedding_model_openai_missing_api_key_raises(monkeypatch):

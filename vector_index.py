@@ -13,7 +13,6 @@ from chromadb.api.models.Collection import Collection
 from langchain_core.embeddings import Embeddings
 
 from chunking import ChunkConfig, CodeChunk, chunk_file
-from llm_factory import get_embedding_model
 
 DEFAULT_CHROMA_DIR = Path(os.getenv("CHROMA_PERSIST_DIR", ".chroma"))
 
@@ -73,7 +72,11 @@ class ChromaVectorStore(VectorStore):
     ) -> None:
         self.persist_dir = Path(persist_dir)
         self.persist_dir.mkdir(parents=True, exist_ok=True)
-        self.embedding_model = embedding_model or get_embedding_model()
+        if embedding_model is None:
+            from llm_factory import get_embedding_model
+
+            embedding_model = get_embedding_model()
+        self.embedding_model = embedding_model
         self._client = chromadb.PersistentClient(path=str(self.persist_dir))
 
     def _get_collection(self, project_id: str, create: bool = True) -> Collection:

@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 import os
-from typing import Any, Final, Optional
+from typing import TYPE_CHECKING, Any, Final, Optional
 
-from langchain_core.embeddings import Embeddings
-from langchain_core.language_models.chat_models import BaseChatModel
+if TYPE_CHECKING:
+    from langchain_core.embeddings import Embeddings
+    from langchain_core.language_models.chat_models import BaseChatModel
 
 LLM_PROVIDER_OPENAI: Final = "openai"
 LLM_PROVIDER_ANTHROPIC: Final = "anthropic"
@@ -133,6 +134,13 @@ def get_chat_model(
     raise ValueError(f"Unsupported LLM provider '{resolved_provider}'")
 
 
+def _build_local_embedding_model(model_name: str, **kwargs: Any) -> Embeddings:
+    """Build a HuggingFace/sentence-transformers embedding model (lazy import)."""
+    from langchain_huggingface import HuggingFaceEmbeddings
+
+    return HuggingFaceEmbeddings(model_name=model_name, **kwargs)
+
+
 def get_embedding_model(
     *,
     provider: Optional[str] = None,
@@ -162,8 +170,6 @@ def get_embedding_model(
         return OpenAIEmbeddings(model=resolved_model, api_key=resolved_api_key, **kwargs)
 
     if resolved_provider == EMBEDDING_PROVIDER_LOCAL:
-        from langchain_huggingface import HuggingFaceEmbeddings
-
-        return HuggingFaceEmbeddings(model_name=resolved_model, **kwargs)
+        return _build_local_embedding_model(resolved_model, **kwargs)
 
     raise ValueError(f"Unsupported embedding provider '{resolved_provider}'")
