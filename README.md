@@ -16,7 +16,7 @@ DocuMind analyzes code structure (Python, JavaScript, Java, SQL, and more via a 
 - **Ask tab**: index a folder, then ask questions with multi-tool retrieval
 - **LangGraph ReAct agent** with tool-first retrieval:
   - **Agentic**: `grep_code`, `read_file`, `find_symbol`, `get_structure`
-  - **Vector**: `vector_search` (ChromaDB)
+  - **Vector**: `vector_search` (ChromaDB locally, Pinecone in cloud)
   - **Graph**: `who_calls`, `what_calls`, `impact_of`, `dependencies_of`
   - **Generation**: docstrings, README, diagrams from retrieved code
 - Answers cite **file:line** sources; **tool trace** shows which tools the agent used
@@ -33,6 +33,11 @@ DocuMind analyzes code structure (Python, JavaScript, Java, SQL, and more via a 
 - Respects root **`.gitignore`** when present
 - Canonical **`project_id`** = resolved absolute path (consistent for index + query)
 - macOS path fix: `Users/you/project` auto-normalized to `/Users/you/project`
+
+### Vector store (pluggable)
+- **`VECTOR_STORE_PROVIDER=chroma`** (default) — local ChromaDB on disk (`.chroma`)
+- **`VECTOR_STORE_PROVIDER=pinecone`** — hosted Pinecone for cloud/Render (one index, namespace per project)
+- Heavy clients load **lazily**: Chroma and Pinecone are only imported when selected; OpenAI embeddings never load `transformers`/`torch`
 
 ### Evaluation (Phase E)
 - Three-way RAGAS comparison: agentic-only vs vector-only vs graph-assisted
@@ -69,8 +74,11 @@ Open **http://127.0.0.1:5001** (default port **5001** avoids macOS AirPlay on 50
 |----------|---------|
 | `OPENAI_API_KEY` | LLM docs, agent, chat, embeddings |
 | `LLM_PROVIDER` / `LLM_MODEL` | Chat model (default `gpt-4o-mini`) |
-| `EMBEDDING_PROVIDER` / `EMBEDDING_MODEL` | Vector index |
-| `CHROMA_PERSIST_DIR` / `GRAPH_PERSIST_DIR` | Index persistence |
+| `EMBEDDING_PROVIDER` / `EMBEDDING_MODEL` | Embeddings (`openai` recommended on Render; `local` for offline BGE) |
+| `VECTOR_STORE_PROVIDER` | `chroma` (default) or `pinecone` |
+| `CHROMA_PERSIST_DIR` | Local Chroma path (default `.chroma`) |
+| `PINECONE_API_KEY` / `PINECONE_INDEX_NAME` | Required when `VECTOR_STORE_PROVIDER=pinecone` |
+| `GRAPH_PERSIST_DIR` | Code graph path (default `.graph_store`) |
 | `LANGCHAIN_TRACING_V2` / `LANGSMITH_API_KEY` | Optional LangSmith |
 
 Never commit `.env` or API keys.
@@ -84,7 +92,23 @@ pytest --cov=. --cov-report=term-missing
 
 ## Deployment (Render)
 
-Python web service via Gunicorn (`render.yaml`). Not Docker/K8s by default. Run locally to index paths on your machine.
+Python web service via Gunicorn (`render.yaml`). Not Docker/K8s by default.
+
+**Recommended Render env** (512MB instance):
+
+```env
+EMBEDDING_PROVIDER=openai
+EMBEDDING_MODEL=text-embedding-3-small
+VECTOR_STORE_PROVIDER=pinecone
+PINECONE_API_KEY=...
+PINECONE_INDEX_NAME=documind
+OPENAI_API_KEY=...
+```
+
+- Use **OpenAI embeddings** on Render — local HuggingFace models are too heavy for small instances.
+- Use **Pinecone** for persistent vector storage — Render’s ephemeral disk does not keep Chroma indexes across redeploys.
+- Run DocuMind **locally** to index paths on your laptop; hosted instances cannot read your filesystem.
+- The code graph still uses local disk (`.graph_store`); for full cloud persistence you would need external graph storage in a future phase.
 
 ## API endpoints
 
