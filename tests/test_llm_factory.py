@@ -55,6 +55,53 @@ print("ok")
     assert result.returncode == 0, (result.stdout or "") + (result.stderr or "")
 
 
+def test_import_vector_index_chroma_does_not_import_pinecone():
+    """vector_index with chroma must not load pinecone at import time."""
+    script = """
+import os
+import sys
+
+os.environ["VECTOR_STORE_PROVIDER"] = "chroma"
+os.environ["EMBEDDING_PROVIDER"] = "openai"
+
+import vector_index  # noqa: F401
+
+if "pinecone" in sys.modules or any(name.startswith("pinecone.") for name in sys.modules):
+    raise SystemExit("pinecone loaded on chroma import")
+print("ok")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=str(DOCUMIND_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, (result.stdout or "") + (result.stderr or "")
+
+
+def test_import_vector_index_pinecone_does_not_import_chromadb():
+    """vector_index with pinecone must not load chromadb at import time."""
+    script = """
+import os
+import sys
+
+os.environ["VECTOR_STORE_PROVIDER"] = "pinecone"
+
+import vector_index  # noqa: F401
+
+if "chromadb" in sys.modules or any(name.startswith("chromadb.") for name in sys.modules):
+    raise SystemExit("chromadb loaded on pinecone import")
+print("ok")
+"""
+    result = subprocess.run(
+        [sys.executable, "-c", script],
+        cwd=str(DOCUMIND_ROOT),
+        capture_output=True,
+        text=True,
+    )
+    assert result.returncode == 0, (result.stdout or "") + (result.stderr or "")
+
+
 def test_import_vector_index_openai_does_not_import_transformers():
     """vector_index must not pull transformers/torch when only imported."""
     script = """
@@ -63,6 +110,7 @@ import sys
 
 os.environ["EMBEDDING_PROVIDER"] = "openai"
 os.environ["OPENAI_API_KEY"] = "sk-test"
+os.environ["VECTOR_STORE_PROVIDER"] = "chroma"
 
 import vector_index  # noqa: F401
 
