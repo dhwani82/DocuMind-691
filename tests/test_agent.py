@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 from langchain_core.embeddings import Embeddings
 from langchain_core.language_models.chat_models import BaseChatModel
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.outputs import ChatGeneration, ChatResult
 from langgraph.checkpoint.memory import MemorySaver
 
@@ -305,6 +305,7 @@ def test_step_limit_returns_graceful_message(
 
 def test_agent_api_requires_indexed_project(tmp_path: Path, monkeypatch):
     from app import app as flask_app
+    from flask_jwt_extended import create_access_token
 
     ready = tmp_path / "ready"
     ready.mkdir()
@@ -333,8 +334,13 @@ def test_agent_api_requires_indexed_project(tmp_path: Path, monkeypatch):
             contexts=[],
         ),
     )
+    monkeypatch.delenv("MONGODB_URI", raising=False)
 
     client = flask_app.test_client()
+    with flask_app.app_context():
+        headers = {
+            "Authorization": f"Bearer {create_access_token(identity='507f1f77bcf86cd799439011')}"
+        }
     ready_response = client.post(
         "/api/agent",
         json={
@@ -342,6 +348,7 @@ def test_agent_api_requires_indexed_project(tmp_path: Path, monkeypatch):
             "message": "hello",
             "thread_id": "t1",
         },
+        headers=headers,
     )
     assert ready_response.status_code == 200
     assert ready_response.get_json()["answer"] == "ok"
@@ -352,6 +359,7 @@ def test_agent_api_requires_indexed_project(tmp_path: Path, monkeypatch):
             "project_id": str(tmp_path / "missing"),
             "message": "hello",
         },
+        headers=headers,
     )
     assert missing_response.status_code == 404
 
@@ -361,5 +369,41 @@ def test_agent_api_requires_indexed_project(tmp_path: Path, monkeypatch):
             "project_id": str(unindexed),
             "message": "hello",
         },
+        headers=headers,
     )
     assert unindexed_response.status_code == 409
+
+
+def test_run_agent_replays_chat_history(monkeypatch):
+    captured = {}
+
+    class FakeAgent:
+        def invoke(self, payload, config=None):
+            captured["payload"] = payload
+            captured["config"] = config
+            return {
+                "messages": [
+                    HumanMessage(content="prior"),
+                    AIMessage(content="old"),
+                    HumanMessage(content="now"),
+                    AIMessage(content="fresh"),
+                ]
+            }
+
+    result = run_agent(
+        FakeAgent(),
+        "now",
+        thread_id="t1",
+        chat_history=[
+            {"role": "user", "content": "prior"},
+            {"role": "assistant", "content": "old"},
+        ],
+    )
+
+    assert result.answer == "fresh"
+    msgs = captured["payload"]["messages"]
+    assert len(msgs) == 3
+    assert msgs[0].content == "prior"
+    assert msgs[1].content == "old"
+    assert msgs[2].content == "now"
+    assert "replay-2" in captured["config"]["configurable"]["thread_id"]

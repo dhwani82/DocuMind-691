@@ -99,10 +99,13 @@ def test_resolve_project_folder_accepts_users_prefix_without_leading_slash(
 
 def test_index_project_api_returns_ready_project(
     client,
+    auth_headers,
     tiny_project: Path,
     isolated_stores,
     monkeypatch: pytest.MonkeyPatch,
 ):
+    from bson import ObjectId
+
     vector_store, graph_store = isolated_stores
     monkeypatch.setattr(
         "project_indexing.ChromaVectorStore",
@@ -113,9 +116,24 @@ def test_index_project_api_returns_ready_project(
         lambda *args, **kwargs: graph_store,
     )
 
+    mongo_id = ObjectId()
+    monkeypatch.setattr(
+        "project_index_tracking.models.get_project_by_owner_and_source",
+        lambda *_a, **_k: None,
+    )
+    monkeypatch.setattr(
+        "project_index_tracking.models.create_project",
+        lambda *_a, **_k: {"_id": mongo_id},
+    )
+    monkeypatch.setattr(
+        "project_index_tracking.models.set_project_index_status",
+        lambda *_a, **_k: None,
+    )
+
     response = client.post(
         "/api/index-project",
         json={"folder_path": str(tiny_project)},
+        headers=auth_headers,
     )
     data = response.get_json()
 
@@ -124,12 +142,14 @@ def test_index_project_api_returns_ready_project(
     assert data["ready"] is True
     assert data["project_id"] == tiny_project.resolve().as_posix()
     assert data["files_scanned"] == 1
+    assert data["mongo_project_id"] == str(mongo_id)
 
 
-def test_index_project_api_rejects_missing_folder(client):
+def test_index_project_api_rejects_missing_folder(client, auth_headers):
     response = client.post(
         "/api/index-project",
         json={"folder_path": "/path/that/does/not/exist"},
+        headers=auth_headers,
     )
     data = response.get_json()
 
@@ -137,8 +157,8 @@ def test_index_project_api_rejects_missing_folder(client):
     assert data and "error" in data
 
 
-def test_index_project_api_requires_folder_path(client):
-    response = client.post("/api/index-project", json={})
+def test_index_project_api_requires_folder_path(client, auth_headers):
+    response = client.post("/api/index-project", json={}, headers=auth_headers)
     data = response.get_json()
 
     assert response.status_code == 400

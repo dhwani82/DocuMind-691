@@ -26,9 +26,11 @@ from universal_parser import UniversalParser, resolve_language_label, should_ind
 from project_scanner import scan_project
 from rag_engine import RAGEngine
 from chatbot_service import answer_question
+from auth import init_auth, login_user, register_user, require_auth
 
 app = Flask(__name__)
 CORS(app)
+init_auth(app)
 
 # Chatbot RAG: raw file/project sources for /api/chat retrieval
 CURRENT_PROJECT_FILES = []
@@ -445,7 +447,44 @@ def _api_chat_format_sources(chunks: List[Dict[str, Any]]) -> List[Dict[str, Any
     return out
 
 
+@app.route("/api/register", methods=["POST"])
+def api_register():
+    """Create a user and return a JWT access token."""
+    try:
+        if not request.is_json:
+            return jsonify({"success": False, "error": "Request must be JSON"}), 400
+        data = request.get_json(silent=True) or {}
+        result = register_user(
+            str(data.get("email") or ""),
+            str(data.get("password") or ""),
+        )
+        return jsonify({"success": True, **result}), 201
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e) or "Registration failed."}), 500
+
+
+@app.route("/api/login", methods=["POST"])
+def api_login():
+    """Verify credentials and return a JWT access token."""
+    try:
+        if not request.is_json:
+            return jsonify({"success": False, "error": "Request must be JSON"}), 400
+        data = request.get_json(silent=True) or {}
+        result = login_user(
+            str(data.get("email") or ""),
+            str(data.get("password") or ""),
+        )
+        return jsonify({"success": True, **result}), 200
+    except ValueError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 401
+    except Exception as e:
+        return jsonify({"success": False, "error": str(e) or "Login failed."}), 500
+
+
 @app.route("/api/chat", methods=["POST"])
+@require_auth
 def api_chat():
     """DocuMind floating chat: JSON body { "question": "..." } + RAG over CURRENT_PROJECT_FILES."""
     global CHAT_HISTORY
@@ -483,40 +522,86 @@ def api_chat():
                 400,
             )
 
+        from auth import get_current_user_id
+        from chat_session import (
+            load_or_create_session,
+            messages_for_model,
+            persist_turn,
+        )
+
+        user_id = get_current_user_id()
+        thread_id = str(data.get("thread_id") or "default").strip() or "default"
+        chat_id = data.get("chat_id")
+        chat_doc = None
+        try:
+            chat_doc = load_or_create_session(
+                user_id,
+                project_id=None,
+                thread_id=thread_id,
+                chat_id=chat_id,
+            )
+        except ValueError as exc:
+            return jsonify({"success": False, "error": str(exc)}), 400
+        except Exception as persist_err:
+            print(f"DocuMind chat history load failed (non-fatal): {persist_err!s}")
+
+        if chat_doc is not None:
+            history_for_model = messages_for_model(chat_doc)
+        else:
+            history_for_model = list(CHAT_HISTORY)
+
         retrieved_chunks = rag_engine.retrieve(question, top_k=5)
         if not retrieved_chunks:
             not_found = "I could not find this in the uploaded project."
-            CHAT_HISTORY.append({"role": "user", "content": question})
-            CHAT_HISTORY.append({"role": "assistant", "content": not_found})
-            _trim_session_chat()
-            return (
-                jsonify(
-                    {
-                        "success": True,
-                        "answer": not_found,
-                        "sources": [],
-                    }
-                ),
-                200,
-            )
+            if chat_doc is None:
+                CHAT_HISTORY.append({"role": "user", "content": question})
+                CHAT_HISTORY.append({"role": "assistant", "content": not_found})
+                _trim_session_chat()
+            persisted_id = None
+            try:
+                persisted_id = persist_turn(
+                    chat_doc,
+                    user_content=question,
+                    assistant_content=not_found,
+                    tool_trace=None,
+                    citations=[],
+                )
+            except Exception as persist_err:
+                print(f"DocuMind chat history save failed (non-fatal): {persist_err!s}")
+            payload = {
+                "success": True,
+                "answer": not_found,
+                "sources": [],
+            }
+            if persisted_id or chat_doc is not None:
+                payload["chat_id"] = persisted_id or str(chat_doc["_id"])
+            return jsonify(payload), 200
 
-        # Prior turns for the model; current question + RAG is added inside answer_question
-        history_for_model = list(CHAT_HISTORY)
         answer = answer_question(question, retrieved_chunks, history_for_model)
-        CHAT_HISTORY.append({"role": "user", "content": question})
-        CHAT_HISTORY.append({"role": "assistant", "content": answer})
-        _trim_session_chat()
+        if chat_doc is None:
+            CHAT_HISTORY.append({"role": "user", "content": question})
+            CHAT_HISTORY.append({"role": "assistant", "content": answer})
+            _trim_session_chat()
         sources = _api_chat_format_sources(retrieved_chunks)
-        return (
-            jsonify(
-                {
-                    "success": True,
-                    "answer": answer,
-                    "sources": sources,
-                }
-            ),
-            200,
-        )
+        persisted_id = None
+        try:
+            persisted_id = persist_turn(
+                chat_doc,
+                user_content=question,
+                assistant_content=answer,
+                tool_trace=None,
+                citations=sources,
+            )
+        except Exception as persist_err:
+            print(f"DocuMind chat history save failed (non-fatal): {persist_err!s}")
+        payload = {
+            "success": True,
+            "answer": answer,
+            "sources": sources,
+        }
+        if persisted_id or chat_doc is not None:
+            payload["chat_id"] = persisted_id or str(chat_doc["_id"])
+        return jsonify(payload), 200
     except Exception as e:
         return (
             jsonify(
@@ -608,6 +693,16 @@ def parse_code():
                 'structure': diagram_gen.generate_structure_diagram()
             }
             result['diagrams'] = diagrams
+            from artifact_publish import publish_mermaid_artifacts, resolve_project_id
+
+            project_key = resolve_project_id(
+                {"filename": filename, "project_id": (request.json or {}).get("project_id")},
+                fallback="snippet",
+            )
+            diagram_artifacts = publish_mermaid_artifacts(diagrams, project_key)
+            if diagram_artifacts:
+                result['diagram_artifacts'] = diagram_artifacts
+                result['project_id'] = project_key
         except Exception as diagram_error:
             # If diagram generation fails, still return the parse result
             import traceback
@@ -670,12 +765,21 @@ def generate_documentation():
         # Generate documentation (optional api_key from request, else OPENAI_API_KEY env)
         doc_generator = DocumentationGenerator(api_key=api_key)
         documentation = doc_generator.generate_documentation(code, parse_result)
-        
-        return jsonify({
+
+        from artifact_publish import publish_documentation_artifacts, resolve_project_id
+
+        project_key = resolve_project_id(data, fallback="snippet")
+        artifacts = publish_documentation_artifacts(documentation, project_key)
+
+        payload = {
             'success': True,
             'documentation': documentation,
-            'used_llm': doc_generator.use_llm
-        })
+            'used_llm': doc_generator.use_llm,
+            'project_id': project_key,
+        }
+        if artifacts:
+            payload['artifacts'] = artifacts
+        return jsonify(payload)
     except SyntaxError as e:
         return jsonify({'error': f'Syntax error: {str(e)}'}), 400
     except ImportError as e:
@@ -708,12 +812,25 @@ def generate_project_documentation():
         # Generate documentation for the project
         doc_generator = DocumentationGenerator(api_key=api_key)
         documentation = doc_generator.generate_project_documentation(project_data)
-        
-        return jsonify({
+
+        from artifact_publish import publish_documentation_artifacts, resolve_project_id
+
+        project_key = resolve_project_id(data, fallback="project")
+        if not data.get("project_id") and isinstance(project_data, dict):
+            root = project_data.get("root_path") or project_data.get("project_root")
+            if root:
+                project_key = resolve_project_id({"project_id": root}, fallback=project_key)
+        artifacts = publish_documentation_artifacts(documentation, project_key)
+
+        payload = {
             'success': True,
             'documentation': documentation,
-            'used_llm': doc_generator.use_llm
-        })
+            'used_llm': doc_generator.use_llm,
+            'project_id': project_key,
+        }
+        if artifacts:
+            payload['artifacts'] = artifacts
+        return jsonify(payload)
     except Exception as e:
         import traceback
         error_details = traceback.format_exc()
@@ -759,6 +876,11 @@ def parse_project():
                 'structure': diagram_gen.generate_structure_diagram()
             }
             all_results['diagrams'] = full_project_diagrams
+            from artifact_publish import attach_mermaid_artifacts_to_result, resolve_project_id
+
+            attach_mermaid_artifacts_to_result(
+                all_results, resolve_project_id(data, fallback=folder_path)
+            )
         except Exception as diagram_error:
             print(f"Error generating diagrams: {str(diagram_error)}")
             all_results['file_diagrams'] = {}
@@ -1043,6 +1165,16 @@ def parse_uploaded_project():
                 'structure': diagram_gen.generate_structure_diagram()
             }
             aggregated['diagrams'] = full_project_diagrams
+            from artifact_publish import attach_mermaid_artifacts_to_result, resolve_project_id
+
+            project_hint = (request.form.get("project_id") or request.form.get("project_name") or "").strip()
+            attach_mermaid_artifacts_to_result(
+                aggregated,
+                resolve_project_id(
+                    {"project_id": project_hint} if project_hint else {},
+                    fallback="upload",
+                ),
+            )
         except Exception as diagram_error:
             print(f"Error generating diagrams: {str(diagram_error)}")
             aggregated['file_diagrams'] = {}
@@ -1168,6 +1300,15 @@ def parse_github_repo():
                 'structure': diagram_gen.generate_structure_diagram()
             }
             all_results['diagrams'] = full_project_diagrams
+            from artifact_publish import attach_mermaid_artifacts_to_result, resolve_project_id
+
+            attach_mermaid_artifacts_to_result(
+                all_results,
+                resolve_project_id(
+                    {"project_id": repo_url, "folder_path": clone_path},
+                    fallback="github",
+                ),
+            )
         except Exception as diagram_error:
             # Log error but don't fail the request
             print(f"Error generating diagrams: {str(diagram_error)}")
@@ -1231,7 +1372,28 @@ def generate_svg_flowchart():
         # Generate SVG flowchart
         svg_generator = SVGFlowchartGenerator(parse_result)
         svg_content = svg_generator.generate_svg_flowchart(function_name=function_name)
-        
+
+        from artifact_publish import publish_svg_artifact, resolve_project_id
+
+        project_key = resolve_project_id(data, fallback="snippet")
+        artifact = publish_svg_artifact(
+            svg_content, project_key, function_name=function_name
+        )
+
+        # Prefer JSON when the client asks for it (or always include signed URL metadata).
+        wants_json = "application/json" in (request.headers.get("Accept") or "").lower()
+        if wants_json or artifact is not None:
+            payload = {
+                "success": True,
+                "svg": svg_content,
+                "project_id": project_key,
+            }
+            if artifact:
+                payload["artifact"] = artifact
+                payload["url"] = artifact["url"]
+                payload["s3_key"] = artifact["key"]
+            return jsonify(payload)
+
         return Response(
             svg_content,
             mimetype='image/svg+xml',
@@ -1247,6 +1409,7 @@ def generate_svg_flowchart():
 
 
 @app.route('/api/index-project', methods=['POST'])
+@require_auth
 def index_project_route():
     """Ingest a folder into the vector index and build its code graph."""
     try:
@@ -1258,9 +1421,14 @@ def index_project_route():
         if not folder_path:
             return jsonify({'error': 'folder_path is required'}), 400
 
-        from project_indexing import index_project_folder
+        from auth import get_current_user_id
+        from project_index_tracking import index_project_with_status
 
-        result = index_project_folder(folder_path)
+        owner_id = get_current_user_id()
+        if not owner_id:
+            return jsonify({'error': 'Authentication required'}), 401
+
+        result = index_project_with_status(folder_path, owner_id)
         return jsonify(result.to_dict())
     except ValueError as exc:
         return jsonify({'error': str(exc)}), 400
@@ -1273,6 +1441,7 @@ def index_project_route():
 
 
 @app.route('/api/agent', methods=['POST'])
+@require_auth
 def agent_query():
     """Run the DocuMind LangGraph agent against an indexed project."""
     try:
@@ -1283,6 +1452,7 @@ def agent_query():
         project_id = str(data.get('project_id', '')).strip()
         message = str(data.get('message', '')).strip()
         thread_id = str(data.get('thread_id', 'default')).strip() or 'default'
+        chat_id = data.get('chat_id')
 
         if not project_id:
             return jsonify({'error': 'project_id is required'}), 400
@@ -1290,6 +1460,12 @@ def agent_query():
             return jsonify({'error': 'message is required'}), 400
 
         from agent import get_agent, is_project_ready, resolve_project_root, run_agent
+        from auth import get_current_user_id
+        from chat_session import (
+            load_or_create_session,
+            messages_for_model,
+            persist_turn,
+        )
         from project_indexing import canonical_project_id
 
         try:
@@ -1308,6 +1484,22 @@ def agent_query():
                 }
             ), 409
 
+        user_id = get_current_user_id()
+        chat_doc = None
+        history_for_model: list = []
+        try:
+            chat_doc = load_or_create_session(
+                user_id,
+                project_id=project_id,
+                thread_id=thread_id,
+                chat_id=chat_id,
+            )
+            history_for_model = messages_for_model(chat_doc)
+        except ValueError as exc:
+            return jsonify({'error': str(exc)}), 400
+        except Exception as persist_err:
+            print(f"DocuMind agent history load failed (non-fatal): {persist_err!s}")
+
         agent = get_agent(project_root, project_id)
         result = run_agent(
             agent,
@@ -1315,16 +1507,30 @@ def agent_query():
             thread_id=thread_id,
             project_id=project_id,
             endpoint="api/agent",
+            chat_history=history_for_model or None,
         )
 
-        return jsonify(
-            {
-                'answer': result.answer,
-                'sources': result.sources,
-                'tool_trace': result.tool_trace,
-                'tokens': result.tokens,
-            }
-        )
+        persisted_id = None
+        try:
+            persisted_id = persist_turn(
+                chat_doc,
+                user_content=message,
+                assistant_content=result.answer,
+                tool_trace=result.tool_trace,
+                citations=result.sources,
+            )
+        except Exception as persist_err:
+            print(f"DocuMind agent history save failed (non-fatal): {persist_err!s}")
+
+        payload = {
+            'answer': result.answer,
+            'sources': result.sources,
+            'tool_trace': result.tool_trace,
+            'tokens': result.tokens,
+        }
+        if persisted_id or chat_doc is not None:
+            payload['chat_id'] = persisted_id or str(chat_doc['_id'])
+        return jsonify(payload)
     except Exception as e:
         import traceback
 

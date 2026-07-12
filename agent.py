@@ -147,12 +147,22 @@ def run_agent(
     project_id: Optional[str] = None,
     endpoint: str = "agent.run",
     retrieval_strategy: str = RETRIEVAL_AGENT,
+    chat_history: Optional[list[dict[str, str]]] = None,
 ) -> AgentRunResult:
-    """Invoke the agent and return a structured response."""
+    """Invoke the agent and return a structured response.
+
+    When ``chat_history`` is provided (e.g. from MongoDB), prior turns are replayed
+    into the invoke payload so a session can resume after process restarts.
+    """
     configure_tracing()
     limit = recursion_limit or DEFAULT_RECURSION_LIMIT
+    prior = _history_to_lc_messages(chat_history)
+    # Avoid merging replayed history with an in-memory checkpoint for the same thread.
+    effective_thread = (
+        f"{thread_id}:replay-{len(prior)}" if prior else thread_id
+    )
     config = build_run_config(
-        thread_id=thread_id,
+        thread_id=effective_thread,
         project_id=project_id,
         endpoint=endpoint,
         retrieval_strategy=retrieval_strategy,
@@ -162,7 +172,7 @@ def run_agent(
 
     try:
         state = agent.invoke(
-            {"messages": [HumanMessage(content=message)]},
+            {"messages": [*prior, HumanMessage(content=message)]},
             config=config,
         )
     except GraphRecursionError:
@@ -183,6 +193,20 @@ def run_agent(
         tokens=_collect_token_usage(messages),
         contexts=_collect_contexts(messages),
     )
+
+
+def _history_to_lc_messages(
+    chat_history: Optional[list[dict[str, str]]],
+) -> list[BaseMessage]:
+    converted: list[BaseMessage] = []
+    for item in chat_history or []:
+        role = str(item.get("role") or "").strip()
+        content = str(item.get("content") or "")
+        if role == "user":
+            converted.append(HumanMessage(content=content))
+        elif role == "assistant":
+            converted.append(AIMessage(content=content))
+    return converted
 
 
 def _final_answer(messages: Sequence[BaseMessage]) -> str:
