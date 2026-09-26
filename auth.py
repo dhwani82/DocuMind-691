@@ -109,13 +109,35 @@ def login_user(email: str, password: str) -> dict[str, Any]:
     return {"access_token": token, "user": _user_public(user)}
 
 
+GUEST_USER_ID = "000000000000000000000001"
+
+
+def auth_required_enabled() -> bool:
+    """When false (default), Ask routes allow unauthenticated local/demo use."""
+    return (os.getenv("AUTH_REQUIRED") or "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }
+
+
 def require_auth(view: F) -> F:
-    """Protect a route and set ``g.user_id`` from the JWT identity."""
+    """Protect a route and set ``g.user_id`` from the JWT identity.
+
+    If ``AUTH_REQUIRED`` is unset/false, JWT is optional and a guest user id is used.
+    """
 
     @wraps(view)
-    @jwt_required()
     def wrapped(*args: Any, **kwargs: Any):
-        g.user_id = get_jwt_identity()
+        from flask_jwt_extended import verify_jwt_in_request
+
+        if auth_required_enabled():
+            verify_jwt_in_request()
+            g.user_id = get_jwt_identity()
+        else:
+            verify_jwt_in_request(optional=True)
+            g.user_id = get_jwt_identity() or GUEST_USER_ID
         return view(*args, **kwargs)
 
     return wrapped  # type: ignore[return-value]
@@ -129,5 +151,7 @@ def get_current_user_id() -> Optional[str]:
     try:
         identity = get_jwt_identity()
     except RuntimeError:
-        return None
-    return str(identity) if identity else None
+        return GUEST_USER_ID if not auth_required_enabled() else None
+    if identity:
+        return str(identity)
+    return GUEST_USER_ID if not auth_required_enabled() else None

@@ -74,20 +74,25 @@ def index_project_with_status(
 
     Status flow: ``pending`` → ``indexing`` → ``ready`` | ``failed``.
     Invalid paths raise before a document is written (indexing never started).
+    If MongoDB is unavailable, indexing still runs and ``mongo_project_id`` is empty.
     """
     project_root: Path = resolve_project_folder(folder_path)
     source_ref = project_root.as_posix()
     store_label = _vector_store_label()
 
-    mongo_id = _ensure_project_doc(
-        owner_id,
-        name=project_root.name,
-        source_type=source_type,
-        source_ref=source_ref,
-        vector_store=store_label,
-    )
-
-    models.set_project_index_status(mongo_id, models.INDEX_STATUS_INDEXING)
+    mongo_id: Any = None
+    try:
+        mongo_id = _ensure_project_doc(
+            owner_id,
+            name=project_root.name,
+            source_type=source_type,
+            source_ref=source_ref,
+            vector_store=store_label,
+        )
+        models.set_project_index_status(mongo_id, models.INDEX_STATUS_INDEXING)
+    except Exception as exc:
+        print(f"DocuMind Mongo project tracking skipped (non-fatal): {exc!s}")
+        mongo_id = None
 
     try:
         result = index_project_folder(
@@ -96,15 +101,23 @@ def index_project_with_status(
             graph_store=graph_store,
         )
     except Exception:
-        models.set_project_index_status(mongo_id, models.INDEX_STATUS_FAILED)
+        if mongo_id is not None:
+            try:
+                models.set_project_index_status(mongo_id, models.INDEX_STATUS_FAILED)
+            except Exception:
+                pass
         raise
 
-    final_status = (
-        models.INDEX_STATUS_READY if result.ready else models.INDEX_STATUS_FAILED
-    )
-    models.set_project_index_status(mongo_id, final_status)
+    if mongo_id is not None:
+        final_status = (
+            models.INDEX_STATUS_READY if result.ready else models.INDEX_STATUS_FAILED
+        )
+        try:
+            models.set_project_index_status(mongo_id, final_status)
+        except Exception as exc:
+            print(f"DocuMind Mongo status update skipped (non-fatal): {exc!s}")
 
     return TrackedIndexResult(
         index=result,
-        mongo_project_id=str(mongo_id),
+        mongo_project_id=str(mongo_id) if mongo_id is not None else "",
     )

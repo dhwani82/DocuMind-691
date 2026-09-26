@@ -271,13 +271,26 @@ def clone_github_repo(repo_url: str) -> str:
         # Clone the repository - git clone creates a directory with repo_name
         clone_path = os.path.join(temp_dir, repo_name)
         
-        # Run git clone command
+        # Clone without installing git hooks — macOS/sandbox often blocks
+        # writing executable files under .git/hooks ("Operation not permitted").
         result = subprocess.run(
-            ['git', 'clone', url, clone_path],
+            [
+                "git",
+                "-c",
+                "core.hooksPath=/dev/null",
+                "clone",
+                "--depth",
+                "1",
+                "--single-branch",
+                "--template=",
+                url,
+                clone_path,
+            ],
             capture_output=True,
             text=True,
             timeout=300,  # 5 minute timeout
-            check=True
+            check=True,
+            env={**os.environ, "GIT_TERMINAL_PROMPT": "0"},
         )
         
         # Verify the directory was created and contains files

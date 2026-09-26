@@ -23,19 +23,19 @@ Persistence, auth, Docker, and optional S3 artifact storage support a fuller pro
   - **Graph**: `who_calls`, `what_calls`, `impact_of`, `dependencies_of`
   - **Generation**: docstrings, README, diagrams from retrieved code
 - Answers cite **file:line** sources; **tool trace** shows which tools the agent used
-- Requires **indexing** via `POST /api/index-project` first (JWT required)
+- Requires **indexing** via `POST /api/index-project` first
 - Chat turns persist to **MongoDB** when `MONGODB_URI` is set (resume via `chat_id` / `thread_id`)
 
 ### Floating chat (quick Q&A on current session)
 - **Ask DocuMind AI** launcher (bottom-right) after you analyze or upload a project
-- **`POST /api/chat`**: RAG over files in the current browser session (JWT required)
+- **`POST /api/chat`**: RAG over files in the current browser session
 - Lighter-weight than the agent tab; no persistent vector index required
 - With MongoDB: history is stored with `project_id=null` and replayed for follow-ups
 
 ### Auth & persistence
-- **`POST /api/register`** / **`POST /api/login`**: JWT auth (`flask-jwt-extended`)
+- Login/register APIs exist but are **optional** for local demos (`AUTH_REQUIRED` defaults off — guest user)
 - MongoDB collections: `users`, `projects` (index status), `chat_history`
-- Indexing tracks `pending` → `indexing` → `ready` / `failed` per authenticated owner
+- Indexing can track `pending` → `indexing` → `ready` / `failed` when Mongo is available
 
 ### Project indexing
 - **`POST /api/index-project`**: ingest a folder path → vector index + code graph (+ Mongo status)
@@ -80,14 +80,13 @@ docker compose up --build
 
 ### Ask DocuMind workflow (indexed projects)
 
-1. Register/login → obtain JWT (`Authorization: Bearer <token>`)
-2. **Ask DocuMind** tab → enter folder path → **Index**
-3. Select project from dropdown → ask e.g. *Who calls helper in calls.py?*
+1. **Ask DocuMind** tab → enter folder path → **Index**
+2. Select project from dropdown → ask e.g. *Who calls helper in calls.py?*
 
 ### Analyze + floating chat workflow
 
 1. **Analyze & Diagram** → paste/upload/project → **Analyze Code**
-2. Open **Ask DocuMind AI** (launcher) → ask about the loaded project (JWT required for `/api/chat`)
+2. Open **Ask DocuMind AI** (launcher) → ask about the loaded project
 
 ## Environment variables
 
@@ -159,20 +158,13 @@ MONGODB_URI=...   # e.g. MongoDB Atlas
 | `/api/generate-docs` | POST | — | Docstrings, README, ARCHITECTURE (+ optional S3 URLs) |
 | `/api/generate-project-docs` | POST | — | Project-level docs (+ optional S3 URLs) |
 | `/api/generate-svg-flowchart` | POST | — | SVG flowchart (+ optional S3 URL) |
-| `/api/index-project` | POST | JWT | Index folder → vector + graph + Mongo status |
-| `/api/agent` | POST | JWT | LangGraph agent Q&A (+ Mongo chat history) |
-| `/api/chat` | POST | JWT | Session RAG chat (+ Mongo history when configured) |
+| `/api/index-project` | POST | optional* | Index folder → vector + graph (+ Mongo status) |
+| `/api/agent` | POST | optional* | LangGraph agent Q&A (+ Mongo chat history) |
+| `/api/chat` | POST | optional* | Session RAG chat (+ Mongo history when configured) |
 | `/api/parse-project` | POST | — | Parse local project folder |
 | `/api/parse-github-repo` | POST | — | Clone & parse public repo |
 
-Protected routes expect `Authorization: Bearer <access_token>`.
-
-## Sample projects
-
-| Path | Language |
-|------|----------|
-| `eval/sample_project_data/` | Python |
-| `eval/sample_java_project_data/` | Java |
+\* By default (`AUTH_REQUIRED` unset/false) index/agent/chat work **without login** (guest user) for local demos. Set `AUTH_REQUIRED=true` when you wire up a login UI.
 
 ## License
 

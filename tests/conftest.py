@@ -7,7 +7,8 @@ TEST_USER_ID = str(ObjectId("507f1f77bcf86cd799439011"))
 
 
 @pytest.fixture
-def client():
+def client(monkeypatch):
+    monkeypatch.setenv("AUTH_REQUIRED", "true")
     app.config["TESTING"] = True
     app.config["JWT_SECRET_KEY"] = "test-jwt-secret-key-at-least-32-bytes"
     with app.test_client() as client:
